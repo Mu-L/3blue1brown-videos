@@ -63,8 +63,46 @@ class Grid(VGroup):
     def add_hole(self, i, j, *args, **kwargs):
         unit_size = self.get_width()/self.n
         hole = Hole(*args, **kwargs).scale(unit_size)
+        hole.pos = (i, j)
         self.position_at_coordinates(hole, i, j)
         self.holes.add(hole)
+
+    def get_reasonable_tiling(self):
+        occupied = [[False] * self.n for _ in range(self.n)]
+        for hole in self.holes:
+            occupied[hole.pos[1]][hole.pos[0]] = True
+
+        def find_candidate_rectangles():
+            heights = [0] * self.n
+            candidates = []
+            for row in range(self.n):
+                for col in range(self.n):
+                    heights[col] = 0 if occupied[row][col] else heights[col] + 1
+                stack = []
+                for col in range(self.n + 1):
+                    h = heights[col] if col < self.n else 0
+                    start = col
+                    while stack and stack[-1][1] >= h:
+                        idx, height = stack.pop()
+                        area = height * (col - idx)
+                        candidates.append((area, row - height + 1, idx, row, col - 1))
+                        start = idx
+                    stack.append((start, h))
+            return candidates
+
+        empty_remaining = self.n * self.n - self.n
+        while empty_remaining > 0:
+            candidates = find_candidate_rectangles()
+            max_area = max(c[0] for c in candidates)
+            good = [c for c in candidates if c[0] >= max_area * 0.75]
+            area, top, left, bottom, right = random.choice(good)
+
+            self.add_tile(right - left + 1, bottom - top + 1, left, top)
+            for r in range(top, bottom + 1):
+                for c in range(left, right + 1):
+                    occupied[r][c] = True
+            empty_remaining -= area
+
 
 class OptimalGrid(Grid):
     def __init__(self, k, *args, **kwargs):
@@ -100,6 +138,15 @@ class OptimalGrid(Grid):
         for j in range(1, k):
             self.add_tile(j, k, 0, n - (j + 1)*k)
         self.ul_tiles = VGroup(*self.tiles[len(self.main_tiles) + len(self.ur_tiles) + len(self.dr_tiles) + len(self.dl_tiles):])
+
+class RandomGrid(Grid):
+    def __init__(self, n, *args, **kwargs):
+        super().__init__(n, *args, **kwargs)
+
+        hole_col = list(range(n))
+        random.shuffle(hole_col)
+        for row in range(n):
+            self.add_hole(hole_col[row], row)
 
 class OptimalArrangementMotivation(InteractiveScene):
     def construct(self):
@@ -974,6 +1021,82 @@ class WindmillTilings(InteractiveScene):
             , lag_ratio = 0.2)
         )
 
+        # Circle the final count
+        final_count = expanded_version[1:]
+        rect = SurroundingRectangle(final_count, buff = 0.4, fill_opacity = 0, stroke_width = 3, stroke_color = YELLOW)
+        self.play(ShowCreation(rect, run_time = 2), FadeOut(edge_tile_numbers), grid.animate.restore().move_to(grid))
+        self.wait(2)
+
+        # Compare the conjectured optimal arrangement with other random arrangements
+        grid.generate_target()
+        final_count.generate_target()
+        VGroup(final_count.target, grid.target).arrange(DOWN, buff = 2.5).match_x(grid).match_y(self.camera.frame)
+        edge_tile_numbers.set_z_index(100)
+        self.play(
+            AnimationGroup(
+                FadeOut(VGroup(formula_group, expanded_version_intermediate, expanded_version[0], rect)),
+                AnimationGroup(
+                    MoveToTarget(grid, run_time = 1),
+                    MoveToTarget(final_count, path_arc = PI*0.4, run_time = 1.5)
+                )
+            , lag_ratio = 0.3)
+        )
+
+        num_iters = 100
+        for i in range(num_iters):
+            other_grid = RandomGrid(int(k_tracker.get_value()**2)).match_y(grid).set_x(2*self.camera.frame.get_x() - grid.get_x())
+            for hole in other_grid.holes:
+                hole.border.set_stroke(color = WHITE)
+            self.add(other_grid)
+            if i == 0:
+                qms = TexText("???").match_height(final_count).match_y(final_count).match_x(other_grid)
+                self.play(FadeIn(VGroup(other_grid, qms)), run_time = 0.4)
+            elif i == 26:
+                arrow1 = Arrow(ORIGIN, RIGHT*4, thickness = 17).set_color(YELLOW).next_to(final_count, LEFT, buff = 1)
+                arrow2 = arrow1.copy().rotate(PI).next_to(final_count, RIGHT, buff = 1)
+                self.play(FadeIn(arrow1, shift = RIGHT), FadeIn(arrow2, shift = LEFT))
+            else:
+                self.wait(0.4)
+            if i < num_iters - 1:
+                self.remove(other_grid)
+
+class RandomGrids(InteractiveScene):
+    def construct(self):
+        # Show an animation cyclying through many random grids
+        num_iters = 900
+        for i in range(num_iters):
+            other_grid = RandomGrid(25)
+            other_grid.get_reasonable_tiling()
+            self.camera.frame.set_height(other_grid.get_height()*1.1)
+            for hole in other_grid.holes:
+                hole.border.set_stroke(color = WHITE)
+            self.add(other_grid)
+            self.wait(0.4)
+            if i < num_iters - 1:
+                self.remove(other_grid)
+
+class RandomGridThumbnailTest(InteractiveScene):
+    def construct(self):
+        # Show a big random grid
+        self.camera.frame.reorient(0, 0, 0, (-0.39, 3.47, 0.00), 38.34)
+        grid = RandomGrid(70)
+        grid.get_reasonable_tiling()
+        self.add(grid)
+        for hole in grid.holes:
+            self.add(GlowDot(radius = 3).move_to(hole).set_opacity(0.6))
+            hole.border.set_stroke(color = WHITE)
+
+class TexturedSphereExample(InteractiveScene):
+    def construct(self):
+        # Put the grid on a sphere
+        self.camera.frame.reorient(55, 71, 0, (-0.02, -0.00, 0.87), 0.32)
+        sphere = Sphere(
+            radius=1, 
+            resolution=(70, 70),
+            v_range=(PI*0.9, PI)
+        )
+        textured_sphere = TexturedSurface(sphere, "RandomGrid.png")
+        self.add(textured_sphere)
 
 class ErdosSzekeres(InteractiveScene):
     def construct(self):
@@ -1328,6 +1451,1084 @@ class ErdosSzekeres(InteractiveScene):
                 )
             else:
                 self.wait(1)
+
+        # Switch to the main example for the rest of the scene
+        self.clear()
+        self.camera.frame.restore()
+        self.add(chart, nums)
+        bars.restore()
+        nums.restore()
+        base.add_updater(lambda m: self.bring_to_front(m))
+        self.wait(1)
+
+        # Focus on one of the bars
+        focus_index = 3
+        focus_bar = bars[focus_index]
+        arrow = Arrow(ORIGIN, DOWN*1.5, thickness = 5).set_color(YELLOW).next_to(focus_bar, UP, buff = 1.5)
+        self.play(
+            AnimationGroup(*[
+                VGroup(bar, num).animate.set_opacity(0.1)
+                for bar, num in zip(bars[focus_index + 1:], nums[focus_index + 1:])
+            ]),
+            GrowArrow(arrow)
+        )
+
+        # Highlight its longest increasing and decreasing subsequences
+        increasing_indices = [2, 3]
+        increasing_sequence = VGroup(*[
+            bars[i]
+            for i in increasing_indices
+        ])
+        increasing_markers = VGroup(*[
+            marker_rect(bar, increasing_sequence_color, 0)
+            for bar in increasing_sequence
+        ])
+        self.play(
+            AnimationGroup(*[
+                FadeIn(marker)
+                for marker in increasing_markers
+            ], lag_ratio = 0.3)
+        )
+        self.wait(1)
+        lis_text = Tex(R"\text{LIS}: 2", font_size = 110).set_color(increasing_sequence_color)
+        lds_text = Tex(R"\text{LDS}: 3", font_size = 110).set_color(decreasing_sequence_color)
+        lds_text.next_to(lis_text, DOWN, buff = 0.6).align_to(lis_text, LEFT)
+        VGroup(lis_text, lds_text).set_y(0).to_edge(RIGHT, buff = 1.5)
+        base.suspend_updating()
+        self.play(
+            AnimationGroup(
+                VGroup(chart, nums, arrow, increasing_markers).animate.to_edge(LEFT, buff = 1.5),
+                Write(lis_text)
+            , lag_ratio = 0.6, run_time = 1.5)
+        )
+        base.resume_updating()
+        self.wait(1)
+        decreasing_indices = [0, 1, 3]
+        decreasing_sequence = VGroup(*[
+            bars[i]
+            for i in decreasing_indices
+        ])
+        decreasing_markers = VGroup(*[
+            marker_rect(bar, decreasing_sequence_color, 1 if i in increasing_indices else 0)
+            for i, bar in zip(decreasing_indices, decreasing_sequence)
+        ])
+        self.play(
+            AnimationGroup(*[
+                FadeIn(marker)
+                for marker in decreasing_markers
+            ], lag_ratio = 0.3)
+        )
+        self.wait(1)
+        self.play(Write(lds_text), run_time = 1.5)
+        self.wait(1)
+        self.wait(2)
+
+        # Save the values as a pair of numbers below the bar
+        pair = Tex("(2, 3)", font_size = 30).next_to(focus_bar, DOWN)
+        pair[1].set_color(increasing_sequence_color)
+        pair[3].set_color(decreasing_sequence_color)
+        self.play(
+            AnimationGroup(
+                AnimationGroup(
+                    TransformFromCopy(lis_text[-1], pair[1]),
+                    TransformFromCopy(lds_text[-1], pair[3])                        
+                , run_time = 2),
+                FadeIn(VGroup(pair[0], pair[2], pair[4]))
+            , lag_ratio = 0.7)
+        )
+        self.wait(2)
+
+        # Switch focus back to the full chart
+        base.clear_updaters()
+        chart.generate_target()
+        chart.target.set_opacity(1).stretch(1.5, 0).center()
+        nums.generate_target()
+        nums.target.set_opacity(1)
+        for num, bar in zip(nums.target, chart.target[0]):
+            num.match_x(bar)
+        pair.generate_target()
+        pair.target.match_x(chart.target[0][3]).scale(1.3)
+
+        increasing_markers.set_z_index(100)
+        decreasing_markers.set_z_index(100)
+        self.play(
+            FadeOut(VGroup(arrow, lis_text, lds_text), run_time = 1),
+            MoveToTarget(chart, run_time = 2),
+            MoveToTarget(nums, run_time = 2),
+            MoveToTarget(pair, run_time = 2),
+            FadeOut(increasing_markers, shift = RIGHT*0.08, run_time = 0.6),
+            FadeOut(decreasing_markers, shift = RIGHT*0.08, run_time = 0.6)
+        )
+        base.add_updater(lambda m: self.bring_to_front(m))
+        self.wait(2)
+
+        # Show that all the numbers are distinct
+        if False:
+            self.remove(pair)
+            self.wait(1)
+            circles = VGroup(*[Circle(radius = 0.35, fill_opacity = 0, stroke_width = 3, stroke_color = YELLOW).move_to(num) for num in nums])
+            self.play(AnimationGroup(*[ShowCreation(circle) for circle in circles], lag_ratio = 0.1))
+
+        # Add the (LIS, LDS) pair for each bar
+        lis_lds_lengths = [(1, 1), (1, 2), (1, 3), (2, 3), (1, 4), (3, 1), (3, 2), (3, 3), (2, 4)]
+        pairs = VGroup(*[
+            Tex(F"({lis}, {lds})").match_height(pair).match_y(pair).match_x(bar)
+            for (lis, lds), bar in zip(lis_lds_lengths, bars)
+        ])
+        pair_4 = pair
+        for i, pair in enumerate(pairs):
+            pair[1].set_color(increasing_sequence_color)
+            pair[3].set_color(decreasing_sequence_color)
+            pair.save_state()
+            if i != focus_index:
+                pair.scale(1.2).set_opacity(0)
+            else:
+                pair.set_opacity(1)
+        self.play(
+            AnimationGroup(*[
+                pair.animate.restore()
+                for pair in list(pairs[:focus_index]) + list(pairs[focus_index + 1:])
+            ], lag_ratio = 0.2)
+        , run_time = 3.6)
+        self.remove(pair_4)
+        self.add(pairs)
+        self.wait(2)
+
+        # Do another example
+        bars.save_state()
+        nums.save_state()
+        pairs.save_state()
+        focus_index = 6
+        focus_bar = bars[focus_index]
+        arrow = Arrow(ORIGIN, DOWN*1.1, thickness = 4).set_color(YELLOW).next_to(focus_bar, UP, buff = 0.85)
+        self.play(
+            VGroup(
+                *[
+                    VGroup(bar, num)
+                    for bar, num in zip(bars[focus_index + 1:], nums[focus_index + 1:])
+                ],
+                pairs[:focus_index],
+                pairs[focus_index + 1:]
+            ).animate.set_opacity(0.1),
+            GrowArrow(arrow)
+        )
+        increasing_indices = [2, 3, 6]
+        increasing_sequence = VGroup(*[
+            bars[i]
+            for i in increasing_indices
+        ])
+        increasing_markers = VGroup(*[
+            marker_rect(bar, increasing_sequence_color, 0)
+            for bar in increasing_sequence
+        ])
+        self.play(
+            AnimationGroup(*[
+                FadeIn(marker)
+                for marker in increasing_markers
+            ], lag_ratio = 0.3)
+        )
+        self.wait(1)
+        decreasing_indices = [5, 6]
+        decreasing_sequence = VGroup(*[
+            bars[i]
+            for i in decreasing_indices
+        ])
+        decreasing_markers = VGroup(*[
+            marker_rect(bar, decreasing_sequence_color, 1 if i in increasing_indices else 0)
+            for i, bar in zip(decreasing_indices, decreasing_sequence)
+        ])
+        self.play(
+            AnimationGroup(*[
+                FadeIn(marker)
+                for marker in decreasing_markers
+            ], lag_ratio = 0.3)
+        )
+        self.wait(1)
+        self.play(
+            bars.animate.restore(), nums.animate.restore(), pairs.animate.restore(),
+            FadeOut(arrow), FadeOut(increasing_markers), FadeOut(decreasing_markers), run_time = 2
+        )
+        self.wait(1)
+
+        # Indicate pairs to show uniqueness
+        self.play(AnimationGroup(*[Indicate(pair) for pair in pairs], lag_ratio = 0.1), run_time = 3)
+
+        # Save the full chart
+        original_chart_group = VGroup(chart, nums, pairs).copy()
+
+        # Bring in an arbitrary pair of bars
+        bar1 = bars[1].copy()
+        bar2 = bar1.copy()
+        VGroup(bar1, bar2).arrange(buff = 2).align_to(bars[0], DOWN)
+        self.play(
+            AnimationGroup(
+                FadeOut(VGroup(bars, nums, pairs)),
+                FadeIn(VGroup(bar1, bar2))
+            , lag_ratio = 0.2)
+        , run_time = 3)
+        self.wait(2)
+
+        # Write an arbitrary pair of values for the LIS and LDS for that bar
+        pair = Tex("(x, y)", tex_to_color_map = {"x": increasing_sequence_color, "y": decreasing_sequence_color}).match_height(pairs[0]).match_y(pairs[0]).match_x(bar1)
+        self.play(FadeIn(pair))
+
+        # Make the second bar taller
+        stretch_factor = 1.2
+        self.play(
+            bar1.animate.stretch(1/stretch_factor, 1).align_to(bar1, DOWN),
+            bar2.animate.stretch(stretch_factor, 1).align_to(bar2, DOWN)
+        , run_time = 0.7)
+        self.play(
+            bar1.animate.stretch(stretch_factor**2, 1).align_to(bar1, DOWN),
+            bar2.animate.stretch(1/stretch_factor**2, 1).align_to(bar2, DOWN)
+        , run_time = 0.7)
+        self.play(
+            bar1.animate.stretch(1/stretch_factor**3, 1).align_to(bar1, DOWN),
+            bar2.animate.stretch(stretch_factor**3, 1).align_to(bar2, DOWN)
+        , run_time = 2)
+        pair2 = Tex("(x', y')", tex_to_color_map = {"x'": increasing_sequence_color, "y'": decreasing_sequence_color}).match_height(pairs[0]).match_y(pairs[0]).match_x(bar2)
+        self.play(FadeIn(pair2))
+        self.wait(1)
+
+        # Show a generic tail of bars behind the first bar
+        heights = [2, 6, 5, 3]
+        heights = [h*0.6 for h in heights]
+        tail = VGroup(*[
+            bar1.copy().stretch_to_fit_width(0.5).stretch_to_fit_height(height)
+            for height in heights
+        ]).arrange(
+            buff = 0.1
+        ).next_to(
+            bar1, LEFT, buff = 0.2
+        )
+        tail_opacity = 0.4
+        for bar in tail:
+            bar.align_to(
+                bar1, DOWN
+            ).set_opacity(
+                tail_opacity
+            )
+        cdots = Tex(R"\cdots", font_size = 100).match_y(bar1)
+
+        self.play(
+            AnimationGroup(
+                *[
+                    FadeIn(bar)
+                    for bar in tail
+                ],
+                Write(cdots, run_time = 1.5)
+            , lag_ratio = 0.1),
+        )
+        self.wait(2)
+
+        # Recompute marker thickness
+        marker_thickness = 0.5 * min(
+            b.get_height() for b in [tail[0], tail[1], tail[2], tail[3], bar1]
+        )
+
+        # Show the increasing subsequence of length x
+        increasing_sequence = VGroup(tail[0], tail[3], bar1)
+        increasing_markers = VGroup(*[
+            marker_rect(bar, increasing_sequence_color, 0)
+            for bar in increasing_sequence
+        ])
+        brace = Brace(increasing_sequence, UP).shift(UP*0.1)
+        label = brace.get_tex("x", font_size = 60).set_color(increasing_sequence_color).shift(UP*0.2)
+        self.play(
+            AnimationGroup(*[
+                bar.animate.set_opacity(1)
+                for bar in increasing_sequence
+            ], lag_ratio = 0.1),
+            AnimationGroup(*[
+                FadeIn(marker)
+                for marker in increasing_markers
+            ], lag_ratio = 0.1),
+            GrowFromEdge(brace, DOWN),
+            Write(label)
+        )
+        self.wait(2)
+
+        # Extend the increasing sequence to the second bar
+        brace.generate_target()
+        label.generate_target()
+        extended_brace = Brace(VGroup(increasing_sequence, bar2), UP).shift(UP*0.1)
+        extended_label = extended_brace.get_tex(R"x' \ge x + 1", font_size = 60).set_color(increasing_sequence_color).shift(UP*0.2)
+        part1 = extended_label[:3]
+        part2 = extended_label[3:]
+        part2.save_state()
+        part2.match_x(extended_brace)
+        bar2_increasing_marker = marker_rect(bar2, increasing_sequence_color, 0)
+        increasing_markers.add(bar2_increasing_marker)
+        self.play(
+            TransformFromCopy(brace, extended_brace),
+            TransformMatchingShapes(label.copy(), part2),
+            FadeIn(bar2_increasing_marker)
+        , run_time = 2)
+        self.wait(1)
+        self.play(part2.animate.restore(), FadeIn(part1, shift = RIGHT*0.5))
+
+        # Save the example
+        case1 = VGroup(
+            tail, bar1, bar2, increasing_markers, base, pair, pair2,
+            brace, label, extended_brace, extended_label, cdots
+        ).copy()
+
+        # Make the second bar shorter
+        increasing_markers.set_z_index(100)
+        self.play(
+            FadeOut(VGroup(brace, label, extended_brace, extended_label)),
+            FadeOut(increasing_markers[:-1]),
+            FadeOut(increasing_markers[-1], shift = DOWN*3),
+            tail.animate.set_opacity(tail_opacity),
+            bar2.animate.stretch_to_fit_height(0.6*bar1.get_height()).align_to(bar2, DOWN)
+        )
+        self.wait(2)
+
+        # Show the decreasing subsequence of length 7
+        decreasing_sequence = VGroup(tail[1], tail[2], bar1)
+        decreasing_markers = VGroup(*[
+            marker_rect(bar, decreasing_sequence_color, 0)
+            for bar in decreasing_sequence
+        ])
+        brace = Brace(decreasing_sequence, UP)
+        label = brace.get_tex("y", font_size = 60).set_color(decreasing_sequence_color)
+        self.play(
+            AnimationGroup(*[
+                bar.animate.set_opacity(1)
+                for bar in decreasing_sequence
+            ], lag_ratio = 0.1),
+            AnimationGroup(*[
+                FadeIn(marker)
+                for marker in decreasing_markers
+            ], lag_ratio = 0.1),
+            GrowFromEdge(brace, DOWN),
+            Write(label)
+        )
+        self.wait(2)
+
+        # Extend the decreasing sequence to the second bar
+        brace.generate_target()
+        label.generate_target()
+        extended_brace = Brace(VGroup(decreasing_sequence, bar2), UP).align_to(case1[-3], UP)
+        extended_label = extended_brace.get_tex(R"y' \ge y + 1", font_size = 60).set_color(decreasing_sequence_color).align_to(case1[-2], UP)
+        part1 = extended_label[:3]
+        part2 = extended_label[3:]
+        part2.save_state()
+        part2.match_x(extended_brace)
+        bar2_decreasing_marker = marker_rect(bar2, decreasing_sequence_color, 0)
+        decreasing_markers.add(bar2_decreasing_marker)
+        self.play(
+            TransformFromCopy(brace, extended_brace),
+            TransformMatchingShapes(label.copy(), part2),
+            FadeIn(bar2_decreasing_marker)
+        , run_time = 2)
+        self.wait(1)
+        self.play(part2.animate.restore(), FadeIn(part1, shift = RIGHT*0.5))
+
+        # Save the second example
+        case2 = VGroup(
+            tail, bar1, bar2, decreasing_markers, base, pair, pair2,
+            brace, label, extended_brace, extended_label, cdots
+        )
+
+        # Show both examples side by side
+        case1.clear_updaters()
+        base.clear_updaters()
+        case1[1:3].set_stroke(width = 3, color = YELLOW, behind = True)
+        case1[1:4].set_z_index(400)
+        case2.generate_target()
+        case2.target[1:3].set_stroke(width = 3, color = YELLOW)
+        case2.set_stroke(behind = True)
+        VGroup(case1, case2.target).scale(0.63).arrange(buff = 0.7)
+        case2.target.align_to(case1, DOWN)
+        case2[1:4].set_z_index(400)
+        case1_label = TexText("Case 1").next_to(case1, DOWN, buff = 1)
+        case2_label = TexText("Case 2").next_to(case2.target, DOWN, buff = 1)
+        self.play(
+            AnimationGroup(
+                AnimationGroup(
+                    FadeIn(case1, shift = RIGHT*5),
+                    MoveToTarget(case2)
+                ),
+                LaggedStartMap(FadeIn, VGroup(case1_label, case2_label), lag_ratio = 0.2, shift = UP*1.5, run_time = 0.8)
+            , lag_ratio = 0.1)
+        , run_time = 3)
+
+        # Bring back the original chart
+        original_chart_group.clear_updaters()
+        self.play(
+            FadeOut(VGroup(case1, case2, case1_label, case2_label), shift = DOWN*7),
+            FadeIn(original_chart_group, shift = DOWN*7)
+        , run_time = 1.5)
+        chart, nums, pairs = original_chart_group[0], original_chart_group[1], original_chart_group[2]
+        self.wait(0.5)
+
+        # Indicate pairs again to show uniqueness
+        self.play(AnimationGroup(*[Indicate(pair) for pair in pairs], lag_ratio = 0.1), run_time = 3)
+        self.wait(2)
+
+        # Put each pair of numbers on a coordinate grid
+        number_plane = NumberPlane(
+            x_range = [0, 5],
+            y_range = [0, 5]
+        ).set_width(4.5).to_edge(RIGHT, buff = 1)
+        number_plane.remove(number_plane.faded_lines)
+        x_labels = number_plane.add_coordinate_labels(x_values = [1, 2, 3, 4, 5], y_values = [], font_size = 30, direction = DOWN)
+        y_labels = number_plane.add_coordinate_labels(x_values = [], y_values = [1, 2, 3, 4, 5], font_size = 30, direction = LEFT)
+        x_labels.set_color(increasing_sequence_color)
+        y_labels.set_color(decreasing_sequence_color)
+        points = Group(*[
+            Group(GlowDot(), TrueDot()).set_color(n_color).move_to(number_plane.c2p(x, y))
+            for (x, y) in lis_lds_lengths
+        ])
+        point_labels = pairs.copy()
+        for point, label in zip(points, point_labels):
+            label.scale(0.6).next_to(point, UR, buff = -0.1)
+        self.play(
+            original_chart_group.animate(run_time = 2).scale(0.55).to_edge(LEFT, buff = 1),
+            FadeIn(number_plane, shift = LEFT*6, run_time = 2),
+            AnimationGroup(*[
+                AnimationGroup(
+                    TransformFromCopy(pair, label, path_arc = -PI*0.2),
+                    FadeIn(point)
+                , lag_ratio = 0.6, run_time = 2 + i*0.2)
+                for i, (point, pair, label) in enumerate(zip(points, pairs, point_labels))
+            ])
+        )
+        self.wait(1)
+
+        # Draw a rectangle bounding the points
+        unit_size = number_plane.background_lines[1].get_y() - number_plane.background_lines[0].get_y()
+        rect = Rectangle(
+            width = unit_size*3,
+            height = unit_size*4,
+            fill_opacity = 0.4,
+            fill_color = TEAL,
+            stroke_width = 4,
+            stroke_color = TEAL
+        ).align_to(number_plane.c2p(0, 0), DL)
+        self.bring_to_back(rect)
+        self.play(
+            DrawBorderThenFill(rect, stroke_width = 6)
+        , run_time = 2)
+        self.wait(2)
+
+        # Show the dimensions
+        width_brace = Brace(rect, DOWN, buff = 0.5)
+        width_label = width_brace.get_tex(R"\text{LIS}").set_color(increasing_sequence_color)
+        bars, base = chart
+        base.add_updater(lambda m: self.bring_to_front(m))
+        # Bars have since been scaled down (coordinate-grid step), so
+        # recompute the marker thickness to match their current size.
+        marker_thickness = 0.5 * min(bar.get_height() for bar in bars)
+
+        increasing_indices = [2, 3, 7]
+        decreasing_indices = [0, 1, 3, 8]
+        increasing_markers = VGroup(*[
+            marker_rect(bars[i], increasing_sequence_color, 0)
+            for i in increasing_indices
+        ])
+        self.play(
+            GrowFromEdge(width_brace, UP),
+            Write(width_label),
+            AnimationGroup(*[
+                FadeIn(marker)
+                for marker in increasing_markers
+            ], lag_ratio = 0.1)
+        )
+        self.wait(1)
+
+        height_brace = Brace(rect, LEFT, buff = 0.5)
+        height_label = height_brace.get_tex(R"\text{LDS}").set_color(decreasing_sequence_color)
+        decreasing_markers = VGroup(*[
+            marker_rect(bars[i], decreasing_sequence_color, 1 if i in increasing_indices else 0)
+            for i in decreasing_indices
+        ])
+        self.play(
+            GrowFromEdge(height_brace, RIGHT),
+            Write(height_label),
+            AnimationGroup(*[
+                FadeIn(marker)
+                for marker in decreasing_markers
+            ], lag_ratio = 0.1)
+        )
+        self.wait(1)
+
+        # Circle the lattice points
+        lattice_points = VGroup()
+        for i in range(3):
+            for j in range(4):
+                point = Circle(
+                    radius = 0.15, stroke_width = 3, stroke_color = WHITE
+                ).move_to(number_plane.c2p(i + 1, j + 1))
+                lattice_points.add(point)
+        self.play(AnimationGroup(*[ShowCreation(point) for point in lattice_points], lag_ratio = 0.15))
+
+        # Write the inequality up top
+        inequality.scale(0.8).set_x(0).to_edge(UP, buff = 0.6)
+        self.play(
+            AnimationGroup(
+                TransformMatchingShapes(width_label.copy(), inequality["LIS"], path_arc = -PI*0.35),
+                TransformMatchingShapes(height_label.copy(), inequality["LDS"], path_arc = -PI*0.2),
+                GrowFromCenter(inequality[R"\cdot"], path_arc = -PI*0.3),
+                Write(inequality[R"\ge N"])
+            , lag_ratio = 0.3, run_time = 2)
+        )
+
+    def set_camera_target_position(
+        self,
+        theta_degrees=None,
+        phi_degrees=None,
+        gamma_degrees=None,
+        center=None,
+        height=None,
+        drift_time=2.0,
+    ):
+        frame = self.camera.frame
+        frame.clear_updaters()
+        initial_orientation = frame.get_orientation()
+        initial_height = frame.get_height()
+        initial_eye = frame.get_implied_camera_location()
+        target_frame = frame.copy()
+        target_frame.reorient(theta_degrees, phi_degrees, gamma_degrees, center, height)
+        target_orientation = target_frame.get_orientation()
+        target_height = target_frame.get_height()
+        target_eye = target_frame.get_implied_camera_location()
+        fovy = frame.get_field_of_view()
+        slerp = Slerp([0, 1], Rotation.concatenate([initial_orientation, target_orientation]))
+        drift_time = max(drift_time, 1e-4)
+        elapsed = 0.0
+
+        def update_camera(f, dt):
+            nonlocal elapsed
+            elapsed += dt
+            t = min(elapsed / drift_time, 1.0)
+            alpha = smooth(t)
+            current_orientation = slerp(alpha)
+            current_height = interpolate(initial_height, target_height, alpha)
+            current_eye = interpolate(initial_eye, target_eye, alpha)
+            focal_distance = 0.5 * current_height / np.tan(0.5 * fovy)
+            to_camera = current_orientation.as_matrix().T[2]
+            current_center = current_eye - focal_distance * to_camera
+            f.set_orientation(current_orientation)
+            f.move_to(current_center)
+            f.set_height(current_height)
+            if t >= 1.0:
+                f.remove_updater(update_camera)
+        frame.add_updater(update_camera)
+
+
+class ErdosSzekeresV2(InteractiveScene):
+    def construct(self):
+        # Add the grid
+        n = 16
+        grid = Grid(n).set_width(6)
+        self.add(grid)
+        hole_positions = [7, 9, 15, 0, 2, 4, 12, 8, 6, 13, 5, 1, 14, 10, 3, 11]
+        for i, j in enumerate(hole_positions):
+            grid.add_hole(i, j)
+        for hole in grid.holes:
+            hole.border.set_color(WHITE)
+        grid.get_reasonable_tiling()
+        grid.tiles.set_stroke(width = 3)
+
+        # Change it into the n = 12 version
+        for n in range(15, 11, -1):
+            self.wait(0.1)
+            self.remove(grid)
+            grid = Grid(n).set_width(6)
+            self.add(grid)
+            hole_positions = np.random.permutation(list(range(n)))
+            if n == 12:
+                hole_positions = [8, 7, 5, 3, 11, 10, 2, 9, 1, 6, 4, 0]
+            for i, j in enumerate(hole_positions):
+                grid.add_hole(i, j)
+            for hole in grid.holes:
+                hole.border.set_color(WHITE)
+            grid.get_reasonable_tiling()
+            grid.tiles.set_stroke(width = 3)
+        self.clear()
+        self.add(grid)
+
+        # Number the holes according to their height
+        nums_color = BLUE_B
+        values = [n - j for j in hole_positions]
+        nums = VGroup(*[
+            Integer(j, font_size = 40).set_color(BLUE_B).next_to(grid.holes[i], UP, buff = 0.15)
+            for i, j in enumerate(values)
+        ])
+        bar_color = BLUE
+        column_highlights = VGroup(*[
+            VGroup(*[
+                Tile(1, 1).match_width(grid.holes[0])
+                    .set_fill(bar_color, opacity=0)
+                    .set_stroke(bar_color, opacity=0)
+                for _ in range(height)
+            ]).arrange(UP, buff=0).match_x(hole).align_to(hole, UP)
+            for height, hole in zip(values, grid.holes)
+        ])
+        self.add(column_highlights)
+        n_color = YELLOW
+        brace = Brace(grid, UP, buff = 0.8)
+        label = brace.get_tex("N", font_size = 60).set_color(n_color)
+        self.camera.frame.save_state()
+        self.play(
+            grid.background.animate.fade(0.9),
+            grid.lines.animate.fade(0.9),
+            grid.tiles.animate.fade(0.9),
+            AnimationGroup(
+                AnimationGroup(*[
+                    AnimationGroup(
+                        Succession(
+                            AnimationGroup(*[
+                                square.copy().animate(rate_func=there_and_back).set_fill(GREEN, opacity=1)
+                                for square in column
+                            ], lag_ratio=0.05),
+                            FadeOut(column)
+                        ),
+                        FadeIn(num, shift=UP*0.2, run_time=0.7)
+                    , lag_ratio=0.1)
+                    for num, column in zip(nums, column_highlights)
+                ], lag_ratio=0.1),
+                AnimationGroup(
+                    self.camera.frame.animate(run_time = 1.5).scale(1.1).shift(UP*0.7),
+                    AnimationGroup(
+                        GrowFromEdge(brace, DOWN),
+                        Write(label)
+                    )
+                , lag_ratio = 0.2)
+            , lag_ratio = 0.5)
+        )
+        self.remove(column_highlights)
+
+        # Make the bar chart
+        base = Line(LEFT, RIGHT).set_width(nums.get_width()*1.1).align_to(grid, DOWN)
+        bars = VGroup(*[
+            Rectangle(
+                width = column.get_width()*0.9,
+                height = column.get_height(),
+                fill_opacity = 1,
+                fill_color = bar_color,
+                stroke_width = 0
+            ).match_x(column)
+            for column in column_highlights
+        ]).align_to(base, DOWN)
+        for bar in bars:
+            bar.align_to(base, DOWN)
+        chart = VGroup(bars, base)
+
+        for num, bar in zip(nums, bars):
+            num.generate_target()
+            num.target.next_to(bar, UP, buff = 0.3)
+            bar.save_state()
+            bar.stretch_to_fit_height(0.001).align_to(base, DOWN)
+        self.play(
+            self.camera.frame.animate.restore(),
+            FadeOut(VGroup(brace, label)),
+            FadeOut(grid, run_time = 3),
+            AnimationGroup(*[
+                AnimationGroup(
+                    MoveToTarget(num),
+                    bar.animate.restore()
+                , lag_ratio = 0.1, run_time = 2)
+                for num, bar in zip(nums, bars)
+            ]),
+            ShowCreation(base, run_time = 1)
+        )
+        self.wait(2)
+
+        # Define helpers for indicating LIS/LDS
+        increasing_sequence_color = GREEN_D
+        decreasing_sequence_color = RED_D
+        marker_thickness = 0.5 * min(bar.get_height() for bar in bars)
+
+        def marker_rect(bar, color, level):
+            r = Rectangle(
+                width=bar.get_width(), height=marker_thickness,
+                fill_opacity=1, fill_color=color, stroke_width=0
+            )
+            r.match_x(bar)
+            top = bar.get_top()[1]
+            r.set_y(top - marker_thickness * (level + 0.5))
+            return r
+
+        # Define subsequence helper functions
+        increasing_sequence_color = GREEN_D
+        decreasing_sequence_color = RED_D
+        def longest_increasing_subsequence_indices(seq):
+            n_terms = len(seq)
+            lengths = [1] * n_terms
+            prev = [-1] * n_terms
+            for i in range(n_terms):
+                for j in range(i):
+                    if seq[j] < seq[i] and lengths[j] + 1 > lengths[i]:
+                        lengths[i] = lengths[j] + 1
+                        prev[i] = j
+            end = max(range(n_terms), key=lambda i: lengths[i])
+            indices = []
+            while end != -1:
+                indices.append(end)
+                end = prev[end]
+            return list(reversed(indices))
+
+        def longest_decreasing_subsequence_indices(seq):
+            return longest_increasing_subsequence_indices([-x for x in seq])
+
+        def maximal_longest_increasing_subsequences(seq, include_length_1 = False):
+            remaining_indices = list(range(len(seq)))
+            all_sequences = []
+            while remaining_indices:
+                remaining_values = [seq[i] for i in remaining_indices]
+                local_lis = longest_increasing_subsequence_indices(remaining_values)
+                global_lis = [remaining_indices[i] for i in local_lis]
+                all_sequences.append(global_lis)
+                used = set(global_lis)
+                remaining_indices = [i for i in remaining_indices if i not in used]
+            if not include_length_1:
+                all_sequences = [s for s in all_sequences if len(s) > 1]
+            return all_sequences
+
+        def maximal_longest_decreasing_subsequences(seq, include_length_1 = False):
+            remaining_indices = list(range(len(seq)))
+            all_sequences = []
+            while remaining_indices:
+                remaining_values = [seq[i] for i in remaining_indices]
+                local_lds = longest_decreasing_subsequence_indices(remaining_values)
+                global_lds = [remaining_indices[i] for i in local_lds]
+                all_sequences.append(global_lds)
+                used = set(global_lds)
+                remaining_indices = [i for i in remaining_indices if i not in used]
+            if not include_length_1:
+                all_sequences = [s for s in all_sequences if len(s) > 1]
+            return all_sequences
+
+        left_to_right = sorted(zip(values, bars, nums), key = lambda triple: triple[1].get_x())
+        values, bars, nums = [v for v, _, _ in left_to_right], VGroup(*[b for _, b, _ in left_to_right]), VGroup(*[m for _, _, m in left_to_right])
+        base.add_updater(lambda m: self.bring_to_front(m))
+
+        def sequence_path(bars, indices, color):
+            points = [bars[i].get_top() for i in indices]
+            line = VMobject()
+            tip = VGroup()
+            if len(points) >= 2:
+                tip_length = 0.3
+                tip_width = 0.3
+                direction = normalize(points[-1] - points[-2])
+                perp = np.array([-direction[1], direction[0], 0])
+                tip_base_center = points[-1] - tip_length * direction
+                line.set_points_as_corners(points[:-1] + [tip_base_center])
+                tip = Polygon(
+                    points[-1],
+                    tip_base_center + (tip_width / 2) * perp,
+                    tip_base_center - (tip_width / 2) * perp,
+                    fill_color = color,
+                    fill_opacity = 1,
+                    stroke_width = 0,
+                )
+                tip.direction = direction
+            else:
+                line.set_points_as_corners(points)
+            line.set_stroke(color, width = 9)
+            start_dot = Dot(radius = 0.1).set_color(color).move_to(points[0])
+            return VGroup(start_dot, line, tip)
+
+        def path_creation_animation(path):
+            start_dot, line, tip = path
+            animations = [GrowFromCenter(start_dot), ShowCreation(line)]
+            if len(tip.get_points()) > 0:
+                animations.append(FadeIn(tip, shift = tip.direction*0.2))
+            return AnimationGroup(*animations, lag_ratio = 0.3)
+
+        # Draw the subsequences
+        all_increasing_indices = maximal_longest_increasing_subsequences(values)
+        all_decreasing_indices = maximal_longest_decreasing_subsequences(values)
+
+        increasing_paths = VGroup(*[
+            sequence_path(bars, indices, increasing_sequence_color)
+            for indices in all_increasing_indices
+        ])
+        decreasing_paths = VGroup(*[
+            sequence_path(bars, indices, decreasing_sequence_color)
+            for indices in all_decreasing_indices
+        ])
+        self.play(
+            AnimationGroup(*[
+                path_creation_animation(path)
+                for path in increasing_paths
+            ], lag_ratio = 0.1)
+        )
+        self.wait(0.4)
+        self.play(
+            AnimationGroup(*[
+                path_creation_animation(path)
+                for path in decreasing_paths
+            ], lag_ratio = 0.1)
+        )
+        self.wait(1)
+        self.play(FadeOut(increasing_paths), FadeOut(decreasing_paths))
+
+
+        # Show a permutation with a long decreasing subsequence but a short increasing one
+        new_bar_heights = [10, 9, 7, 12, 6, 11, 3, 5, 8, 2, 1, 4]
+        permutation = [values.index(i) for i in new_bar_heights]
+        for i, (bar, num) in enumerate(zip(bars, nums)):
+            bars[permutation[i]].generate_target()
+            nums[permutation[i]].generate_target()
+            bars[permutation[i]].target.match_x(bar)
+            nums[permutation[i]].target.match_x(bars[permutation[i]].target)
+        self.play(
+            AnimationGroup(*[MoveToTarget(bar) for bar in bars]),
+            AnimationGroup(*[MoveToTarget(num) for num in nums])
+        )
+
+        # Highlight the decreasing sequences, then the increasing ones
+        left_to_right = sorted(zip(values, bars, nums), key = lambda triple: triple[1].get_x())
+        values, bars, nums = [v for v, _, _ in left_to_right], VGroup(*[b for _, b, _ in left_to_right]), VGroup(*[m for _, _, m in left_to_right])
+        base.add_updater(lambda m: self.bring_to_front(m))
+
+        all_decreasing_indices_2 = maximal_longest_decreasing_subsequences(values)
+        all_increasing_indices_2 = maximal_longest_increasing_subsequences(values)
+
+        decreasing_paths_2 = VGroup(*[
+            sequence_path(bars, indices, decreasing_sequence_color)
+            for indices in all_decreasing_indices_2
+        ])
+        increasing_paths_2 = VGroup(*[
+            sequence_path(bars, indices, increasing_sequence_color)
+            for indices in all_increasing_indices_2
+        ])
+
+        self.play(
+            AnimationGroup(*[
+                path_creation_animation(path)
+                for path in decreasing_paths_2
+            ], lag_ratio = 0.1)
+        )
+        self.wait(0.4)
+        self.play(
+            AnimationGroup(*[
+                path_creation_animation(path)
+                for path in increasing_paths_2
+            ], lag_ratio = 0.1)
+        )
+        self.wait(1)
+        self.play(FadeOut(decreasing_paths_2), FadeOut(increasing_paths_2))
+
+        # Show (LIS, LDS) = (n, 1)
+        new_bar_heights = []
+        for i in range(1, n + 1):
+            new_bar_heights.append(i)
+        permutation = [values.index(i) for i in new_bar_heights]
+        for i, (bar, num) in enumerate(zip(bars, nums)):
+            bars[permutation[i]].generate_target()
+            nums[permutation[i]].generate_target()
+            bars[permutation[i]].target.match_x(bar)
+            nums[permutation[i]].target.match_x(bars[permutation[i]].target)
+        self.play(
+            AnimationGroup(*[MoveToTarget(bar) for bar in bars]),
+            AnimationGroup(*[MoveToTarget(num) for num in nums])
+        )
+        self.wait(1)
+
+        left_to_right = sorted(zip(values, bars, nums), key = lambda triple: triple[1].get_x())
+        values, bars, nums = [v for v, _, _ in left_to_right], VGroup(*[b for _, b, _ in left_to_right]), VGroup(*[m for _, _, m in left_to_right])
+        base.add_updater(lambda m: self.bring_to_front(m))
+
+        all_decreasing_indices = maximal_longest_decreasing_subsequences(values, include_length_1 = True)
+        all_increasing_indices = maximal_longest_increasing_subsequences(values, include_length_1 = True)
+
+        increasing_paths = VGroup(*[
+            sequence_path(bars, indices, increasing_sequence_color)
+            for indices in all_increasing_indices
+        ])
+        decreasing_paths = VGroup(*[
+            sequence_path(bars, indices, decreasing_sequence_color)
+            for indices in all_decreasing_indices
+        ])
+
+        self.play(
+            AnimationGroup(*[
+                path_creation_animation(path)
+                for path in increasing_paths
+            ], lag_ratio = 0.1)
+        )
+        self.wait(0.4)
+        self.play(
+            AnimationGroup(*[
+                path_creation_animation(path)
+                for path in decreasing_paths
+            ], lag_ratio = 0.1)
+        )
+        self.wait(1)
+        self.play(FadeOut(decreasing_paths), FadeOut(increasing_paths))
+
+        # Show (LIS, LDS) = (n/2, 2)
+        new_bar_heights = []
+        for i in range(1, n + 1, 2):
+            new_bar_heights.append(i + 1)
+            new_bar_heights.append(i)
+        permutation = [values.index(i) for i in new_bar_heights]
+        for i, (bar, num) in enumerate(zip(bars, nums)):
+            bars[permutation[i]].generate_target()
+            nums[permutation[i]].generate_target()
+            bars[permutation[i]].target.match_x(bar)
+            nums[permutation[i]].target.match_x(bars[permutation[i]].target)
+        self.play(
+            AnimationGroup(*[MoveToTarget(bar) for bar in bars]),
+            AnimationGroup(*[MoveToTarget(num) for num in nums])
+        )
+        self.wait(1)
+
+        left_to_right = sorted(zip(values, bars, nums), key = lambda triple: triple[1].get_x())
+        values, bars, nums = [v for v, _, _ in left_to_right], VGroup(*[b for _, b, _ in left_to_right]), VGroup(*[m for _, _, m in left_to_right])
+        base.add_updater(lambda m: self.bring_to_front(m))
+
+        all_decreasing_indices = maximal_longest_decreasing_subsequences(values, include_length_1 = True)
+        all_increasing_indices = maximal_longest_increasing_subsequences(values, include_length_1 = True)
+
+        increasing_paths = VGroup(*[
+            sequence_path(bars, indices, increasing_sequence_color)
+            for indices in all_increasing_indices
+        ])
+        decreasing_paths = VGroup(*[
+            sequence_path(bars, indices, decreasing_sequence_color)
+            for indices in all_decreasing_indices
+        ])
+
+        self.play(
+            AnimationGroup(*[
+                path_creation_animation(path)
+                for path in increasing_paths
+            ], lag_ratio = 0.1)
+        )
+        self.wait(0.4)
+        self.play(
+            AnimationGroup(*[
+                path_creation_animation(path)
+                for path in decreasing_paths
+            ], lag_ratio = 0.1)
+        )
+        self.wait(1)
+        self.play(FadeOut(decreasing_paths), FadeOut(increasing_paths))
+
+
+        # # Flash through many other permutations, highlighting their LIS and LDS
+        # self.remove(increasing_markers, decreasing_markers)
+        # slot_xs = sorted(bar.get_x() for bar in bars)
+
+        # def get_extreme_subsequence_slots(seq, increasing=True):
+        #     n = len(seq)
+        #     lengths = [1] * n
+        #     prev = [-1] * n
+        #     for i in range(n):
+        #         for j in range(i):
+        #             better = (seq[j] < seq[i]) if increasing else (seq[j] > seq[i])
+        #             if better and lengths[j] + 1 > lengths[i]:
+        #                 lengths[i] = lengths[j] + 1
+        #                 prev[i] = j
+        #     end = max(range(n), key=lambda i: lengths[i])
+        #     slots = []
+        #     while end != -1:
+        #         slots.append(end)
+        #         end = prev[end]
+        #     return set(slots)
+
+        # n_flashes = 30
+        # prev_perm = None
+        # markers = VGroup()
+        # self.add(markers)
+        # camera_shift_iter = 5
+        # inequality = Tex(
+        #     R"\text{LIS} \cdot \text{LDS} \ge N",
+        #     font_size = 80,
+        #     tex_to_color_map = {"LIS": increasing_sequence_color, "LDS": decreasing_sequence_color, "N": n_color}
+        # ).shift(RIGHT*7 + UP*1)
+
+        # value_font_size = 80
+        # value_row_y = inequality.get_bottom()[1] - 1
+        # lis_value = None
+        # lds_value = None
+
+        # def make_lis_value(val):
+        #     mob = Integer(val, font_size = value_font_size).set_color(increasing_sequence_color)
+        #     mob.match_x(inequality["LIS"])
+        #     mob.set_y(value_row_y)
+        #     return mob
+
+        # def make_lds_value(val):
+        #     mob = Integer(val, font_size = value_font_size).set_color(decreasing_sequence_color)
+        #     mob.match_x(inequality["LDS"])
+        #     mob.set_y(value_row_y)
+        #     return mob
+
+        # for i in range(n_flashes):
+        #     perm = np.random.permutation(9).tolist()
+        #     while perm == prev_perm:
+        #         perm = np.random.permutation(9).tolist()
+        #     prev_perm = perm
+
+        #     for slot, bar_index in enumerate(perm):
+        #         bars[bar_index].set_x(slot_xs[slot])
+        #         nums[bar_index].set_x(slot_xs[slot])
+
+        #     heights_in_order = [values[bar_index] for bar_index in perm]
+        #     lis_slots = get_extreme_subsequence_slots(heights_in_order, increasing=True)
+        #     lds_slots = get_extreme_subsequence_slots(heights_in_order, increasing=False)
+        #     lis_val = len(lis_slots)
+        #     lds_val = len(lds_slots)
+
+        #     self.remove(markers)
+        #     markers = VGroup()
+        #     for slot, bar_index in enumerate(perm):
+        #         bar = bars[bar_index]
+        #         is_lis = slot in lis_slots
+        #         is_lds = slot in lds_slots
+        #         if is_lis:
+        #             markers.add(marker_rect(bar, increasing_sequence_color, 0))
+        #         if is_lds:
+        #             markers.add(marker_rect(bar, decreasing_sequence_color, 1 if is_lis else 0))
+        #     self.add(markers)
+
+        #     if lis_value is not None:
+        #         self.remove(lis_value)
+        #         lis_value = make_lis_value(lis_val)
+        #         self.add(lis_value)
+        #     if lds_value is not None:
+        #         self.remove(lds_value)
+        #         lds_value = make_lds_value(lds_val)
+        #         self.add(lds_value)
+
+        #     if i == camera_shift_iter:
+        #         self.set_camera_target_position(0, 0, 0, (3.35, 0.38, 0.00), 9.25)
+        #         lis_value = make_lis_value(lis_val)
+        #         self.play(FadeIn(inequality["LIS"]), FadeIn(lis_value))
+        #     elif i == camera_shift_iter + 3:
+        #         cdot_value = Tex(R"\cdot", font_size = value_font_size)
+        #         cdot_value.match_x(inequality[R"\cdot"])
+        #         cdot_value.set_y(value_row_y)
+        #         lds_value = make_lds_value(lds_val)
+        #         self.play(
+        #             FadeIn(inequality[R"\cdot"]),
+        #             FadeIn(cdot_value),
+        #             FadeIn(inequality["LDS"]),
+        #             FadeIn(lds_value)
+        #         )
+        #     elif i == camera_shift_iter + 8:
+        #         geq_value = Tex(R"\ge", font_size = value_font_size)
+        #         geq_value.match_x(inequality[-2])
+        #         geq_value.set_y(value_row_y)
+        #         n_value = Tex(str(n), font_size = value_font_size).set_color(n_color)
+        #         n_value.match_x(inequality[-1])
+        #         n_value.set_y(value_row_y)
+        #         self.play(
+        #             FadeIn(inequality[-2:]),
+        #             FadeIn(geq_value),
+        #             FadeIn(n_value),
+        #             GrowFromEdge(brace, UP),
+        #             Write(label)
+        #         )
+        #     else:
+        #         self.wait(1)
 
         # Switch to the main example for the rest of the scene
         self.clear()
@@ -2264,609 +3465,14 @@ class IMODetails(InteractiveScene):
         )
         self.wait(2)
 
-        # Change the label to "2025 IMO" and arrange the problems on the left
-        year_label = TexText(
-            "2025"
-        ).match_height(
-            imo_text_shortened
-        ).set_stroke(
-            width = 7, color = BLACK, behind = True
-        ).set_opacity(
-            0
-        ).next_to(
-            imo_text_shortened, LEFT, buff = 0.1
-        )
-        year_label.generate_target()
-        year_label.target.set_opacity(1)
+        # Change the label to "2025 IMO"
+        year_label = TexText("2025").match_height(imo_text_shortened).set_stroke(width = 7, color = BLACK, behind = True)
         imo_text_shortened.generate_target()
-        imo_logo.generate_target()
-        VGroup(year_label.target, imo_text_shortened.target).arrange(buff = 0.1).move_to(imo_logo.target)
-        Group(imo_logo.target, year_label.target, imo_text_shortened.target).scale(1.5).set_y(0).to_edge(RIGHT, buff = 1)
-        imo_logo.set_z_index(0)
-        imo_text_shortened.set_z_index(1)
-        year_label.set_z_index(1)
+        VGroup(year_label, imo_text_shortened.target).arrange(buff = 1.7).match_y(imo_text_shortened)
+        self.play(MoveToTarget(imo_text_shortened), FadeIn(year_label, shift = RIGHT*0.3), run_time = 2)
 
-        for problem in problems:
-            problem.generate_target()
-        VGroup(*[problem.target for problem in problems]).scale(0.9).arrange(DOWN, buff = 0.2).to_edge(LEFT, buff = 0.6)
-        problems[-1].target[0].set_fill(color = PURE_RED).set_stroke(width = 4, color = YELLOW)
-
-        self.play(
-            MoveToTarget(imo_text_shortened, run_time = 2),
-            MoveToTarget(imo_logo, run_time = 2),
-            MoveToTarget(year_label, run_time = 2),
-            AnimationGroup(*[
-                MoveToTarget(problem, path_arc = PI*0.3 if problem.target.get_y() > 0 else -PI*0.3)
-                for problem in problems
-            ], lag_ratio = 0.06, run_time = 2),
-            FadeOut(creatures, shift = LEFT, run_time = 1),
-            FadeOut(day1_label),
-            FadeOut(day2_label),
-            FadeOut(VGroup(hard, arrow, brutal), shift = RIGHT)
-        )
-
-        # Show scores
-        total_participants = 630
-        scores_data = [368, 253, 102, 342, 215, 6]
-        score_bars = VGroup()
-        master_bar_width_tracker = ValueTracker(0)
-        for score, problem in zip(scores_data, problems):
-            skeleton = Rectangle(
-                width = 4,
-                height = 0.5,
-                fill_opacity = 0.1,
-                fill_color = WHITE,
-                stroke_width = 3,
-                stroke_color = WHITE,
-                stroke_opacity = 1
-            ).round_corners(0.08).set_z_index(1)
-
-            def get_bar(score = score, skeleton = skeleton):
-                fraction = master_bar_width_tracker.get_value()*score/total_participants
-                return Rectangle(
-                    fill_opacity = 1,
-                    fill_color = TEAL_E,
-                    stroke_width = 0
-                ).match_height(
-                    skeleton
-                ).stretch_to_fit_width(
-                    skeleton.get_width()*fraction
-                ).move_to(
-                    skeleton
-                ).align_to(
-                    skeleton, LEFT
-                ).round_corners(min(0.08, fraction)).set_z_index(0)
-            bar = always_redraw(get_bar)
-            score_bars.add(VGroup(bar, skeleton).next_to(problem, RIGHT, buff = 0.5))
-        self.add(score_bars)
-
-        scores = VGroup(*[
-            Integer(score, font_size = 30).set_color(TEAL).next_to(bar, RIGHT)
-            for score, bar in zip(scores_data, score_bars)
-        ])
-        self.play(
-            AnimationGroup(
-                AnimationGroup(
-                    AnimationGroup(*[
-                        FadeIn(skeleton)
-                        for (_, skeleton) in score_bars
-                    ], run_time = 1),
-                    master_bar_width_tracker.animate(run_time = 2).set_value(1)
-                , lag_ratio = 0.02),
-                AnimationGroup(*[
-                    FadeIn(score)
-                    for score in scores
-                ], lag_ratio = 0.1, run_time = 2)
-            , lag_ratio = 0.2)
-        )
-        score_bars.clear_updaters()
-
-        # Draw attention to the last bar
-        arrow = Arrow(ORIGIN, LEFT*1.5).set_color(YELLOW).next_to(scores[-1], RIGHT)
-        self.play(GrowArrow(arrow))
-
-
-class IMODetailsV2(InteractiveScene):
+class Test(InteractiveScene):
     def construct(self):
-        # Write "International Math Olympiad"
-        imo_logo = ImageMobject("IMO_logo").set_opacity(0.9)
-        imo_text = TexText("International Math Olympiad", font_size = 160).set_opacity(0.9).set_stroke(width = 7, color = BLACK, behind = True).next_to(imo_logo, DOWN)
-        Group(imo_logo, imo_text).scale(0.3).to_edge(UP, buff = 0.3)
-        imo_text_shortened = TexText("2025 IMO", font_size = 30).set_stroke(width = 7, color = BLACK, behind = True).move_to(imo_text)
-        self.play(FadeIn(imo_logo, shift = OUT*2), Write(imo_text, stroke_color = WHITE))
-
-        # Fade in boxes for the problems underneath
-        problems = VGroup()
-        for i in range(6):
-            rect = Rectangle(width = 6, height = 1.5, fill_opacity = 1, fill_color = TEAL_A, stroke_width = 0).round_corners(0.2)
-            label = TexText(R"\text{Problem }" + str(i + 1)).set_color(BLACK)
-            label.set_z_index(1)
-            problem = VGroup(rect, label)
-            problems.add(problem)
-        problems.arrange_in_grid(n_cols = 2, h_buff = 2, v_buff = 0.5, fill_rows_first = False).set_width(10).to_edge(DOWN, buff = 0.7)
-        day1_label = TexText("Day 1").next_to(problems[:3], UP, buff = 0.4)
-        day2_label = TexText("Day 2").next_to(problems[3:], UP, buff = 0.4)
-        self.play(
-            AnimationGroup(
-                AnimationGroup(
-                    TransformMatchingShapes(imo_text, imo_text_shortened, run_time = 1),
-                    LaggedStartMap(FadeIn, problems, shift = UP*0.2, lag_ratio = 0.1)
-                ),
-                AnimationGroup(
-                    Write(day1_label),
-                    Write(day2_label)
-                )
-            , lag_ratio = 0.3)
-        )
-        self.wait(1)
-
-        # Highlight problem 6
-        self.play(problems[-1][0].animate.set_fill(color = RED).set_stroke(width = 4, color = YELLOW))
-        self.wait(2)
-
-        # Arrange the problems on the left
-        imo_text_shortened.generate_target()
-        imo_logo.generate_target()
-        Group(imo_logo.target, imo_text_shortened.target).scale(1.5).set_y(0).to_edge(RIGHT, buff = 1)
-        imo_logo.set_z_index(0)
-        imo_text_shortened.set_z_index(1)
-
-        for problem in problems:
-            problem.generate_target()
-        VGroup(*[problem.target for problem in problems]).scale(0.9).arrange(DOWN, buff = 0.2).to_edge(LEFT, buff = 0.6)
-
-        self.play(
-            MoveToTarget(imo_text_shortened, run_time = 2),
-            MoveToTarget(imo_logo, run_time = 2),
-            AnimationGroup(*[
-                MoveToTarget(problem, path_arc = PI*0.3 if problem.target.get_y() > 0 else -PI*0.3)
-                for problem in problems
-            ], lag_ratio = 0.06, run_time = 2),
-            FadeOut(VGroup(day1_label, day2_label))
-        )
-
-        # Show scores
-        total_participants = 630
-        scores_data = [368, 253, 102, 342, 215, 6]
-        score_bars = VGroup()
-        master_bar_width_tracker = ValueTracker(0)
-        for score, problem in zip(scores_data, problems):
-            skeleton = Rectangle(
-                width = 4,
-                height = 0.5,
-                fill_opacity = 0.1,
-                fill_color = WHITE,
-                stroke_width = 3,
-                stroke_color = WHITE,
-                stroke_opacity = 1
-            ).round_corners(0.08).set_z_index(1)
-
-            def get_bar(score = score, skeleton = skeleton):
-                fraction = master_bar_width_tracker.get_value()*score/total_participants
-                return Rectangle(
-                    fill_opacity = 1,
-                    fill_color = TEAL_E,
-                    stroke_width = 0
-                ).match_height(
-                    skeleton
-                ).stretch_to_fit_width(
-                    skeleton.get_width()*fraction
-                ).move_to(
-                    skeleton
-                ).align_to(
-                    skeleton, LEFT
-                ).round_corners(min(0.08, fraction)).set_z_index(0)
-            bar = always_redraw(get_bar)
-            score_bars.add(VGroup(bar, skeleton).next_to(problem, RIGHT, buff = 0.5))
-        self.add(score_bars)
-
-        scores = VGroup(*[
-            Integer(score, font_size = 30).set_color(TEAL).next_to(bar, RIGHT)
-            for score, bar in zip(scores_data, score_bars)
-        ])
-        def update_scores(s):
-            for score_value, score_display in zip(scores_data, scores):
-                score_display.set_value(
-                    int(score_value*master_bar_width_tracker.get_value())
-                ).set_opacity(
-                    master_bar_width_tracker.get_value()*3
-                )
-        scores.add_updater(update_scores)
-        self.add(scores)
-        arrow = Arrow(ORIGIN, LEFT*1.5).set_color(YELLOW).next_to(scores[-1], RIGHT)
-        bars_label = TexText("Number of perfect scores", font_size = 30).next_to(score_bars[0], UP)
-        self.play(
-            FadeIn(bars_label, run_time = 1.4),
-            AnimationGroup(
-                AnimationGroup(
-                    AnimationGroup(*[
-                        FadeIn(skeleton)
-                        for (_, skeleton) in score_bars
-                    ], run_time = 1),
-                    master_bar_width_tracker.animate(run_time = 2).set_value(1)
-                , lag_ratio = 0.02)
-            , lag_ratio = 0.2)
-        )
-        score_bars.clear_updaters()
-        scores.clear_updaters()
-        self.wait(1)
-        self.play(GrowArrow(arrow))
-        self.wait(2)
-
-        # Add text: "The Last IMO Problem that AI could not solve"
-        checkx_and_xs = VGroup(*[
-            (Checkmark().set_color(PURE_GREEN) if i < 5 else Exmark().set_color(PURE_RED)).next_to(problems[i], RIGHT)
-            for i in range(6)
-        ])
-        self.play(
-            FadeOut(Group(bars_label, score_bars, scores, arrow, imo_logo, imo_text_shortened), shift = RIGHT*2),
-            AnimationGroup(*[
-                FadeIn(check_or_x, shift = UP*0.1)
-                for check_or_x in checkx_and_xs
-            ], lag_ratio = 0.1)
-        , run_time = 2)
-        last_imo_problem_text = """
-            The last IMO problem that
-            AI could not solve
-        """
-        last_imo_problem = Text(last_imo_problem_text, font_size = 50).set_x(0.5*(FRAME_WIDTH*0.5 + checkx_and_xs.get_right()[0]))
-        for word in last_imo_problem_text.split():
-            self.add(last_imo_problem[word])
-            self.wait(0.06*len(word))
-        self.wait(2)
-
-
-
-
-import os
-import tempfile
-from PIL import Image
-_desaturate_cache_dir = os.path.join(tempfile.gettempdir(), "manim_desaturate_cache")
-os.makedirs(_desaturate_cache_dir, exist_ok=True)
-_source_array_cache = {}  # source_path -> float64 rgb(a) array, decoded once per source
-
-def desaturate_from_source(source_path: str, alpha: float, position_ref: ImageMobject) -> ImageMobject:
-    alpha = round(float(np.clip(alpha, 0.0, 1.0)), 2)
-
-    if source_path not in _source_array_cache:
-        _source_array_cache[source_path] = np.array(Image.open(source_path)).astype(np.float64)
-    arr = _source_array_cache[source_path]
-
-    has_alpha_channel = arr.shape[-1] == 4
-    rgb = arr[..., :3]
-    gray = 0.299 * rgb[..., 0] + 0.587 * rgb[..., 1] + 0.114 * rgb[..., 2]
-    gray_rgb = np.stack([gray, gray, gray], axis=-1)
-    blended_rgb = (1 - alpha) * rgb + alpha * gray_rgb
-    blended = (
-        np.concatenate([blended_rgb, arr[..., 3:4]], axis=-1)
-        if has_alpha_channel else blended_rgb
-    )
-    blended = np.clip(blended, 0, 255).astype(np.uint8)
-
-    base_name = os.path.splitext(os.path.basename(source_path))[0]
-    out_path = os.path.join(_desaturate_cache_dir, f"{base_name}_{alpha:.2f}.png")
-    if not os.path.exists(out_path):
-        Image.fromarray(blended).save(out_path)
-
-    new_image_mobject = ImageMobject(out_path)
-    new_image_mobject.replace(position_ref)
-    return new_image_mobject
-
-
-
-class Timeline(Group):
-    def __init__(self, start_year, end_year, initial_year, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.start_year = start_year
-        self.end_year = end_year
-        self.number_line = NumberLine(
-            x_range=(self.start_year, self.end_year, 1/12),
-            unit_size=2.6,
-            tick_size=0.1,
-            longer_tick_multiple=2,
-            big_tick_spacing=1
-        )
-        self.add(self.number_line)
-        self.year_labels = self.number_line.add_numbers(
-            range(self.start_year, self.end_year),
-            group_with_commas=False,
-        )
-        def update_year_label(label):
-            year = label.get_value()
-            label.next_to(self.number_line.n2p(year), DOWN, 0.4)
-            focal_value = np.exp(-0.1 * label.get_x()**2)
-            label.set_height(0.25 + 0.25 * focal_value, about_edge=UP)
-            label.set_fill(opacity=(0.5 + 0.5 * focal_value), color = interpolate_color(WHITE, YELLOW, focal_value**2))
-        for label in self.year_labels:
-            label.add_updater(update_year_label)
-
-        self.images = Group()
-        self.add(self.images)
-        self._image_entries = []
-        self.images.add_updater(self._refresh_images)
-
-        self.center().set_y(-2)
-        self.year_tracker = ValueTracker(initial_year)
-        self.add_updater(
-            lambda tl: tl.shift(tl.number_line.n2p(tl.year_tracker.get_value())[0] * LEFT)
-        )
-
-        self.markers = Group()
-
-    def _refresh_images(self, images_group):
-        for entry in self._image_entries:
-            img = entry["current"]
-            focal_value = np.exp(-0.1 * img.get_x() ** 2)
-            new_img = desaturate_from_source(entry["source_path"], 1 - focal_value**2, img)
-            new_img.set_width(1.6 + focal_value**0.7 * 2.35, about_edge=DOWN)
-            new_img.set_opacity(focal_value**0.5)
-            images_group.remove(img)
-            images_group.add(new_img)
-            entry["current"] = new_img
-
-    def add_image(self, file_path, year):
-        image = ImageMobject(file_path).align_to(DOWN, DOWN).set_x(self.number_line.n2p(year)[0])
-        self.images.add(image)
-        self._image_entries.append({"current": image, "source_path": image.image_path})
-        self._refresh_images(self.images)  # avoid a 1-frame flash of the raw original
-
-    def center_on_year(self, year):
-        return self.shift(self.number_line.n2p(year)[0] * LEFT)
-
-    def get_year_label(self, year):
-        return self.year_labels[year - self.start_year]
-
-    def get_marker(self, marker_text, year, image, font_size = 60, shift = 0, image_position = UP, image_shift = 0):
-        text = TexText(marker_text, font_size=font_size).next_to(self.number_line.n2p(year), UP).shift(UP*2.5 + shift)
-        ul = Underline(text)
-        heading = VGroup(text, ul)
-        image.next_to(heading, image_position).shift(image_shift)
-        
-        dot = Dot(radius=0.12).move_to(self.number_line.n2p(year)).set_z_index(1)
-        line = Line(dot.get_center(), ul.get_center(), buff=0, stroke_width=3)
-        
-        marker = Group(dot, line, heading, image)
-        marker.create = AnimationGroup(
-            AnimationGroup(
-                FadeIn(dot),
-                ShowCreation(line),
-                Write(text),
-                GrowFromPoint(ul, ul.get_left())
-            , lag_ratio = 0.2),
-            FadeIn(image, shift = image_position*0.2)
-        , lag_ratio = 0.5)
-        marker.year_tracker = ValueTracker(year)
-        marker.add_updater(lambda m: m.shift(self.number_line.n2p(m.year_tracker.get_value()) - dot.get_center()))
-        self.markers.add(marker)
-
-        marker.text = text
-        marker.ul = ul
-        marker.heading = heading
-        marker.image = image
-        marker.dot = dot
-        marker.line = line
-
-        return marker
-
-
-
-# class AIEvolution(InteractiveScene):
-#     def construct(self):
-#         # Add the timeline
-#         timeline = Timeline(2017, 2030, 2023)
-#         self.add(timeline)
-
-#         # Add the images to the timeline
-#         images_dir = "AI Evolution Timeline images"
-#         image_names_and_years = {
-#             "dwarkesh_thumbnail.png": 2023,
-#             "deepmind_2024.jpg": 2024,
-#             "deepmind_and_openai_gold_medal.webp": 2025
-#         }
-#         for file_name in image_names_and_years:
-#             timeline.add_image(
-#                 os.path.join(images_dir, file_name),
-#                 image_names_and_years[file_name]
-#             )
-
-#         # Move to 2024
-#         self.play(timeline.year_tracker.animate.set_value(2024), run_time = 2)
-#         self.wait(1)
-
-#         # Move to 2025
-#         self.play(timeline.year_tracker.animate.set_value(2025), run_time = 2)
-#         self.wait(1)
-
-#         # Move to 2026
-#         self.play(timeline.year_tracker.animate.set_value(2026), run_time = 2)
-#         self.wait(1)
-
-#         # Go back to 2025
-#         self.play(timeline.year_tracker.animate.set_value(2025), run_time = 2)
-
-
-class AIEvolutionV2(InteractiveScene):
-    def construct(self):
-        # Add the timeline
-        timeline = Timeline(2010, 2040, 2026).set_y(-3)
-        self.add(timeline)
-
-        # Move to 2021
-        self.camera.frame.save_state()
-        self.play(
-            self.camera.frame.animate.scale(2, about_point = [0, timeline.get_y(), 0]),
-            timeline.year_tracker.animate.set_value(2021)
-        , run_time = 2.5)
-        self.wait(1)
-
-        # Add impressive results in games and natural language
-        alphago_marker = timeline.get_marker(
-            "AlphaGo beats Lee Sedol",
-            2016 + 3/12 + 15/365,
-            ImageMobject("AI Evolution Timeline images/alphago.png").set_height(2),
-            shift = UP*2.3 + RIGHT*3,
-            image_position = RIGHT
-        )
-        dota_marker = timeline.get_marker(
-            "OpenAI 5 beats Dota 2 champs",
-            2019 + 4/12 + 15/365,
-            ImageMobject("AI Evolution Timeline images/dota.png").set_height(2),
-            shift = UP*0.5 + RIGHT*2,
-            image_position = RIGHT,
-            image_shift = UP*0.3
-        )
-        gpt_marker = timeline.get_marker(
-            "GPT-3 released",
-            2020 + 5/12 + 29/365,
-            ImageMobject("AI Evolution Timeline images/gpt.png").set_height(2),
-            shift = DOWN*1.3 + RIGHT*2.6,
-            image_position = RIGHT,
-            image_shift = DOWN*0.2
-        )
-        self.play(
-            AnimationGroup(
-                alphago_marker.create,
-                dota_marker.create
-            , lag_ratio = 0.5)
-        )
-        self.play(gpt_marker.create)
-        self.wait(2)
-
-        # Add imo marker
-        imo_marker = timeline.get_marker(
-            "IMO Gold?",
-            2023.9,
-            ImageMobject("IMO_logo").set_height(2),
-            shift = UP + RIGHT*0.3
-        )
-        self.play(FadeIn(imo_marker))
-        self.play(imo_marker.year_tracker.animate.set_value(2025.6), run_time = 2)
-        self.play(imo_marker.year_tracker.animate.set_value(2023.6), run_time = 2)
-        self.play(
-            AnimationGroup(
-                imo_marker.year_tracker.animate(run_time = 7).set_value(2034),
-                self.camera.frame.animate(run_time = 5).shift(RIGHT*18)
-            , lag_ratio = 0.2)
-        )
-
-        # Move back to 2023
-        self.play(
-            AnimationGroup(
-                FadeOut(Group(alphago_marker, dota_marker, gpt_marker, imo_marker), run_time = 1),
-                AnimationGroup(
-                    self.camera.frame.animate.restore(),
-                    timeline.year_tracker.animate.set_value(2023)
-                , run_time = 3)
-            , lag_ratio = 0.4)
-        )
-        self.wait(1)
-
-        # Move to 2024
-        self.play(timeline.year_tracker.animate.set_value(2024), run_time = 2)
-        deepmind_marker = timeline.get_marker(
-            "Deepmind solves 4/6 IMO problems",
-            2024 + 7/12 + 25/365,
-            ImageMobject("AI Evolution Timeline images/deepmind_2024.jpg").set_height(2),
-            shift = DOWN*0.5 + RIGHT*2,
-            font_size = 36
-        )
-        self.play(deepmind_marker.create)
-        self.wait(1)
-
-        # Move to 2025
-        deepmind_marker_opacity_tracker = ValueTracker(1)
-        deepmind_marker.add_updater(lambda m: m.set_opacity(deepmind_marker_opacity_tracker.get_value()))
-        timeline.add_updater(lambda m: deepmind_marker.update())
-        self.play(
-            timeline.year_tracker.animate.set_value(2025),
-            deepmind_marker_opacity_tracker.animate.set_value(0)
-        , run_time = 2)
-        self.remove(deepmind_marker)
-        deepmind_and_openai_marker = timeline.get_marker(
-            R"Deepmind, OpenAI, Harmonic, and Bytedance \\ solve all problems except P6",
-            2025 + 7/12 + 21/365,
-            ImageMobject("AI Evolution Timeline images/multiple_models_win_gold.png").set_height(3),
-            shift = DOWN*0.5 + RIGHT*1.2,
-            font_size = 33
-        )
-        deepmind_and_openai_marker.text["except P6"].set_color(RED)
-        self.play(deepmind_and_openai_marker.create)
-
-        # Move to 2026
-        deepmind_and_openai_marker_opacity_tracker = ValueTracker(1)
-        deepmind_and_openai_marker.add_updater(lambda m: m.set_opacity(deepmind_and_openai_marker_opacity_tracker.get_value()))
-        timeline.add_updater(lambda m: deepmind_and_openai_marker.update())
-        self.play(
-            timeline.year_tracker.animate.set_value(2026),
-            deepmind_and_openai_marker_opacity_tracker.animate.set_value(0)
-        , run_time = 2)
-        self.remove(deepmind_and_openai_marker)
-
-
-class LuongQuote(InteractiveScene):
-    def construct(self):
-        # Add the quote
-        quote = Text(
-            """
-            ‘‘We didn't really have a way to teach
-            the model to be patient. It didn't take
-            the time to understand the problem,
-            to get a feel for the problem,
-            to not try to solve the problem.”
-            """,
-            alignment = "left"
-        ).set_color(YELLOW)
-        quote_bg = quote.copy().set_color("#111111")
-        self.add(quote_bg)
-        self.play(FadeIn(quote["""‘‘We didn't really have a way to teach
-            the model to be patient."""], lag_ratio = 0.1, run_time = 3))
-        self.wait(0.2)
-        self.play(FadeIn(quote["""It didn't take
-            the time to understand the problem,"""], lag_ratio = 0.1, run_time = 2.5),
-            quote["""‘‘We didn't really have a way to teach
-            the model to be patient."""].animate.set_color(WHITE)
-        )
-        self.play(
-            FadeIn(quote["""to get a feel for the problem,"""], lag_ratio = 0.1, run_time = 1.5),
-            quote["""It didn't take
-            the time to understand the problem,"""].animate.set_color(WHITE)
-        )
-        self.wait(0.1)
-        self.play(
-            FadeIn(quote["""to not try to solve the problem.”"""], lag_ratio = 0.1, run_time = 1.5),
-            quote["""to get a feel for the problem,"""].animate.set_color(WHITE)
-        )
-        self.wait(0.1)
-        self.play(quote["""to not try to solve the problem.”"""].animate.set_color(WHITE))
-
-class PiCreaturesWatchingPreview(TeacherStudentsScene):
-    def construct(self):
-        # Students watch the preview
-        self.play(self.get_teacher().change("raise_right_hand", look_at = UP*2))
-        self.play(
-            self.get_students()[0].change("happy", look_at = UP*2),
-            self.get_students()[1].change("pondering", look_at = UP*2),
-            self.get_students()[2].change("well", look_at = UP*2)
-        )
-        self.wait(20)
-
-class PiCreaturesWatchingPreview2(TeacherStudentsScene):
-    def construct(self):
-        # Students watch the preview
-        self.play(self.get_teacher().change("raise_right_hand", look_at = UP*2 + LEFT*4))
-        self.play(
-            self.get_students()[0].change("happy", look_at = UP*2 + LEFT*4),
-            self.get_students()[1].change("pondering", look_at = UP*2 + LEFT*4),
-            self.get_students()[2].change("well", look_at = UP*2 + LEFT*4)
-        )
-        self.wait(3)
-
-        # Teacher reminds students to be patient
-        self.teacher_says(Text("You'll need to\nbe patient", font_size = 40))
-        self.play(
-            self.get_students()[0].change("pondering", look_at = DOWN*2),
-            self.get_students()[1].change("thinking", look_at = DOWN*2),
-            self.get_students()[2].change("pondering", look_at = DOWN*2)
-        )
-
-        self.wait(7)
+        # Add a quote
+        text = Text("’")
+        self.add(text)
