@@ -2845,8 +2845,477 @@ class ErdosSzekeresV2(InteractiveScene):
             hole.border.set_stroke(width = 3, color = WHITE)
         self.play(FadeIn(grid.holes.set_z_index(100)), FadeOut(current_subsequences), run_time = 2)
         self.play(FadeOut(new_chart), FadeIn(VGroup(grid.background, grid.tiles)), run_time = 2)
+        self.wait(1)
 
-        
+        # Switch to the main example for the rest of the scene
+        self.clear()
+        self.camera.frame.restore()
+
+        # Build a fresh, large n = 9 chart with the specific permutation
+        # [6, 5, 2, 4, 1, 9, 8, 7, 3], sized to fill most of the frame
+        n = 9
+        heights = [6, 5, 2, 4, 1, 9, 8, 7, 3]
+        values = heights
+        chart_width = 6
+        chart_height = 5.8
+        bar_width = chart_width / n
+        bars = VGroup(*[
+            Rectangle(
+                width = bar_width * 0.9,
+                height = (h / n) * chart_height,
+                fill_opacity = 1,
+                fill_color = bar_color,
+                stroke_width = 0,
+            )
+            for h in heights
+        ]).arrange(RIGHT, buff = bar_width * 0.1, aligned_edge = DOWN)
+        bars.move_to(ORIGIN).to_edge(DOWN, buff = 1.0)
+        base = Line(LEFT, RIGHT).set_width(bars.get_width() * 1.05).match_x(bars).next_to(bars, DOWN, buff = 0)
+        chart = VGroup(bars, base)
+        nums = VGroup(*[
+            Integer(h, font_size = 40).set_color(nums_color).next_to(bar, UP, buff = 0.38)
+            for h, bar in zip(heights, bars)
+        ])
+
+        self.add(chart, nums)
+        base.add_updater(lambda m: self.bring_to_front(m))
+        self.wait(1)
+
+        # Focus on one of the bars
+        focus_index = 3
+        focus_bar = bars[focus_index]
+        arrow = Arrow(ORIGIN, DOWN*1.5, thickness = 5).set_color(YELLOW).next_to(focus_bar, UP, buff = 1.5)
+        self.play(
+            AnimationGroup(*[
+                VGroup(bar, num).animate.set_opacity(0.1)
+                for bar, num in zip(bars[focus_index + 1:], nums[focus_index + 1:])
+            ]),
+            GrowArrow(arrow)
+        )
+
+        # Highlight its longest increasing and decreasing subsequences
+        increasing_indices = [2, 3]
+        increasing_path = sequence_path(bars, increasing_indices, increasing_sequence_color)
+        self.play(path_creation_animation(increasing_path))
+        self.wait(1)
+        lis_text = Tex(R"\text{LIS}: 2", font_size = 110).set_color(increasing_sequence_color)
+        lds_text = Tex(R"\text{LDS}: 3", font_size = 110).set_color(decreasing_sequence_color)
+        lds_text.next_to(lis_text, DOWN, buff = 0.6).align_to(lis_text, LEFT)
+        VGroup(lis_text, lds_text).set_y(0).to_edge(RIGHT, buff = 1.5)
+        base.suspend_updating()
+        self.play(
+            AnimationGroup(
+                VGroup(chart, nums, arrow, increasing_path).animate.to_edge(LEFT, buff = 1.5),
+                Write(lis_text)
+            , lag_ratio = 0.6, run_time = 1.5)
+        )
+        base.resume_updating()
+        self.wait(1)
+        decreasing_indices = [0, 1, 3]
+        decreasing_path = sequence_path(bars, decreasing_indices, decreasing_sequence_color)
+        self.play(path_creation_animation(decreasing_path))
+        self.wait(1)
+        self.play(Write(lds_text), run_time = 1.5)
+        self.wait(1)
+        self.wait(2)
+
+        # Save the values as a pair of numbers below the bar
+        pair = Tex("(2, 3)", font_size = 30).next_to(focus_bar, DOWN)
+        pair[1].set_color(increasing_sequence_color)
+        pair[3].set_color(decreasing_sequence_color)
+        self.play(
+            AnimationGroup(
+                AnimationGroup(
+                    TransformFromCopy(lis_text[-1], pair[1]),
+                    TransformFromCopy(lds_text[-1], pair[3])                        
+                , run_time = 2),
+                FadeIn(VGroup(pair[0], pair[2], pair[4]))
+            , lag_ratio = 0.7)
+        )
+        self.wait(2)
+
+        # Switch focus back to the full chart
+        base.clear_updaters()
+        chart.generate_target()
+        chart.target.set_opacity(1).stretch(1.5, 0).center()
+        nums.generate_target()
+        nums.target.set_opacity(1)
+        for num, bar in zip(nums.target, chart.target[0]):
+            num.match_x(bar)
+        pair.generate_target()
+        pair.target.match_x(chart.target[0][3]).scale(1.3)
+
+        increasing_path.set_z_index(100)
+        decreasing_path.set_z_index(100)
+        self.play(
+            FadeOut(arrow, shift = UP),
+            FadeOut(VGroup(lis_text, lds_text), run_time = 1),
+            MoveToTarget(chart, run_time = 2),
+            MoveToTarget(nums, run_time = 2),
+            MoveToTarget(pair, run_time = 2),
+            FadeOut(increasing_path, shift = RIGHT*0.08, run_time = 0.6),
+            FadeOut(decreasing_path, shift = RIGHT*0.08, run_time = 0.6)
+        )
+        base.add_updater(lambda m: self.bring_to_front(m))
+        self.wait(2)
+
+        # Show that all the numbers are distinct
+        self.remove(pair)
+        self.wait(1)
+        circles = VGroup(*[Circle(radius = 0.35, fill_opacity = 0, stroke_width = 3, stroke_color = YELLOW).move_to(num) for num in nums])
+        self.play(AnimationGroup(*[ShowCreation(circle) for circle in circles], lag_ratio = 0.1))
+        self.wait(2)
+        self.play(FadeOut(circles))
+
+        # Add the (LIS, LDS) pair for each bar
+        lis_lds_lengths = [(1, 1), (1, 2), (1, 3), (2, 3), (1, 4), (3, 1), (3, 2), (3, 3), (2, 4)]
+        pairs = VGroup(*[
+            Tex(F"({lis}, {lds})").match_height(pair).match_y(pair).match_x(bar)
+            for (lis, lds), bar in zip(lis_lds_lengths, bars)
+        ])
+        pair_4 = pair
+        for i, pair in enumerate(pairs):
+            pair[1].set_color(increasing_sequence_color)
+            pair[3].set_color(decreasing_sequence_color)
+            pair.save_state()
+            if i != focus_index:
+                pair.scale(1.2).set_opacity(0)
+            else:
+                pair.set_opacity(1)
+        self.play(
+            AnimationGroup(*[
+                pair.animate.restore()
+                for pair in list(pairs[:focus_index]) + list(pairs[focus_index + 1:])
+            ], lag_ratio = 0.2)
+        , run_time = 3.6)
+        self.remove(pair_4)
+        self.add(pairs)
+        self.wait(2)
+
+        # Do another example
+        bars.save_state()
+        nums.save_state()
+        pairs.save_state()
+        focus_index = 6
+        focus_bar = bars[focus_index]
+        arrow = Arrow(ORIGIN, DOWN*1.1, thickness = 4).set_color(YELLOW).next_to(focus_bar, UP, buff = 0.85)
+        self.play(
+            VGroup(
+                *[
+                    VGroup(bar, num)
+                    for bar, num in zip(bars[focus_index + 1:], nums[focus_index + 1:])
+                ],
+                pairs[:focus_index],
+                pairs[focus_index + 1:]
+            ).animate.set_opacity(0.1),
+            GrowArrow(arrow)
+        )
+        increasing_indices = [2, 3, 6]
+        increasing_path = sequence_path(bars, increasing_indices, increasing_sequence_color)
+        self.play(path_creation_animation(increasing_path))
+        self.wait(1)
+        decreasing_indices = [5, 6]
+        decreasing_path = sequence_path(bars, decreasing_indices, decreasing_sequence_color)
+        self.play(path_creation_animation(decreasing_path))
+        self.wait(1)
+        self.play(
+            bars.animate.restore(), nums.animate.restore(), pairs.animate.restore(),
+            FadeOut(arrow), FadeOut(increasing_path), FadeOut(decreasing_path), run_time = 2
+        )
+        self.wait(1)
+
+        # Indicate pairs to show uniqueness
+        self.play(AnimationGroup(*[Indicate(pair) for pair in pairs], lag_ratio = 0.1), run_time = 3)
+
+        # Save the full chart
+        original_chart_group = VGroup(chart, nums, pairs).copy()
+
+        # Bring in an arbitrary pair of bars
+        bar1 = bars[1].copy()
+        bar2 = bar1.copy()
+        VGroup(bar1, bar2).arrange(buff = 2).align_to(bars[0], DOWN)
+        self.play(
+            AnimationGroup(
+                FadeOut(VGroup(bars, nums, pairs)),
+                FadeIn(VGroup(bar1, bar2))
+            , lag_ratio = 0.2)
+        , run_time = 3)
+        self.wait(2)
+
+        # Write an arbitrary pair of values for the LIS and LDS for that bar
+        pair = Tex("(x, y)", tex_to_color_map = {"x": increasing_sequence_color, "y": decreasing_sequence_color}).match_height(pairs[0]).match_y(pairs[0]).match_x(bar1)
+        self.play(FadeIn(pair))
+
+        # Make the second bar taller
+        stretch_factor = 1.2
+        self.play(
+            bar1.animate.stretch(1/stretch_factor, 1).align_to(bar1, DOWN),
+            bar2.animate.stretch(stretch_factor, 1).align_to(bar2, DOWN)
+        , run_time = 0.7)
+        self.play(
+            bar1.animate.stretch(stretch_factor**2, 1).align_to(bar1, DOWN),
+            bar2.animate.stretch(1/stretch_factor**2, 1).align_to(bar2, DOWN)
+        , run_time = 0.7)
+        self.play(
+            bar1.animate.stretch(1/stretch_factor**3, 1).align_to(bar1, DOWN),
+            bar2.animate.stretch(stretch_factor**3, 1).align_to(bar2, DOWN)
+        , run_time = 2)
+        pair2 = Tex("(x', y')", tex_to_color_map = {"x'": increasing_sequence_color, "y'": decreasing_sequence_color}).match_height(pairs[0]).match_y(pairs[0]).match_x(bar2)
+        self.play(FadeIn(pair2))
+        self.wait(1)
+
+        # Show a generic tail of bars behind the first bar
+        heights_tail = [2, 6, 5, 3]
+        heights_tail = [h*0.6 for h in heights_tail]
+        tail = VGroup(*[
+            bar1.copy().stretch_to_fit_width(0.5).stretch_to_fit_height(height)
+            for height in heights_tail
+        ]).arrange(
+            buff = 0.1
+        ).next_to(
+            bar1, LEFT, buff = 0.2
+        )
+        tail_opacity = 0.4
+        for bar in tail:
+            bar.align_to(
+                bar1, DOWN
+            ).set_opacity(
+                tail_opacity
+            )
+        cdots = Tex(R"\cdots", font_size = 100).match_y(bar1)
+
+        self.play(
+            AnimationGroup(
+                *[
+                    FadeIn(bar)
+                    for bar in tail
+                ],
+                Write(cdots, run_time = 1.5)
+            , lag_ratio = 0.1),
+        )
+        self.wait(2)
+
+        # Show the increasing subsequence of length x
+        increasing_sequence = VGroup(tail[0], tail[3], bar1)
+        increasing_path = sequence_path(increasing_sequence, range(len(increasing_sequence)), increasing_sequence_color)
+        brace = Brace(increasing_sequence, UP).shift(UP*0.1)
+        label = brace.get_tex("x", font_size = 60).set_color(increasing_sequence_color).shift(UP*0.2)
+        self.play(
+            AnimationGroup(*[
+                bar.animate.set_opacity(1)
+                for bar in increasing_sequence
+            ], lag_ratio = 0.1),
+            path_creation_animation(increasing_path),
+            GrowFromEdge(brace, DOWN),
+            Write(label)
+        )
+        self.wait(2)
+
+        # Extend the increasing sequence to the second bar
+        brace.generate_target()
+        label.generate_target()
+        extended_brace = Brace(VGroup(increasing_sequence, bar2), UP).shift(UP*0.1)
+        extended_label = extended_brace.get_tex(R"x' \ge x + 1", font_size = 60).set_color(increasing_sequence_color).shift(UP*0.2)
+        part1 = extended_label[:3]
+        part2 = extended_label[3:]
+        part2.save_state()
+        part2.match_x(extended_brace)
+        extended_increasing_sequence = VGroup(*increasing_sequence, bar2)
+        extended_increasing_path = sequence_path(extended_increasing_sequence, range(len(extended_increasing_sequence)), increasing_sequence_color)
+        self.play(
+            TransformFromCopy(brace, extended_brace),
+            TransformMatchingShapes(label.copy(), part2),
+            Transform(increasing_path.set_z_index(100), extended_increasing_path.set_z_index(100))
+        , run_time = 2)
+        self.wait(1)
+        self.play(part2.animate.restore(), FadeIn(part1, shift = RIGHT*0.5))
+
+        # Save the example
+        case1 = VGroup(
+            tail, bar1, bar2, increasing_path, base, pair, pair2,
+            brace, label, extended_brace, extended_label, cdots
+        ).copy()
+
+        # Make the second bar shorter
+        increasing_path.set_z_index(100)
+        self.play(
+            FadeOut(VGroup(brace, label, extended_brace, extended_label)),
+            FadeOut(increasing_path),
+            tail.animate.set_opacity(tail_opacity),
+            bar2.animate.stretch_to_fit_height(0.6*bar1.get_height()).align_to(bar2, DOWN)
+        )
+        self.wait(2)
+
+        # Show the decreasing subsequence of length y
+        decreasing_sequence = VGroup(tail[1], tail[2], bar1)
+        decreasing_path = sequence_path(decreasing_sequence, range(len(decreasing_sequence)), decreasing_sequence_color)
+        brace = Brace(decreasing_sequence, UP)
+        label = brace.get_tex("y", font_size = 60).set_color(decreasing_sequence_color)
+        self.play(
+            AnimationGroup(*[
+                bar.animate.set_opacity(1)
+                for bar in decreasing_sequence
+            ], lag_ratio = 0.1),
+            path_creation_animation(decreasing_path),
+            GrowFromEdge(brace, DOWN),
+            Write(label)
+        )
+        self.wait(2)
+
+        # Extend the decreasing sequence to the second bar
+        brace.generate_target()
+        label.generate_target()
+        extended_brace = Brace(VGroup(decreasing_sequence, bar2), UP).align_to(case1[-3], UP)
+        extended_label = extended_brace.get_tex(R"y' \ge y + 1", font_size = 60).set_color(decreasing_sequence_color).align_to(case1[-2], UP)
+        part1 = extended_label[:3]
+        part2 = extended_label[3:]
+        part2.save_state()
+        part2.match_x(extended_brace)
+        extended_decreasing_sequence = VGroup(*decreasing_sequence, bar2)
+        extended_decreasing_path = sequence_path(extended_decreasing_sequence, range(len(extended_decreasing_sequence)), decreasing_sequence_color)
+        self.play(
+            TransformFromCopy(brace, extended_brace),
+            TransformMatchingShapes(label.copy(), part2),
+            Transform(decreasing_path, extended_decreasing_path)
+        , run_time = 2)
+        self.wait(1)
+        self.play(part2.animate.restore(), FadeIn(part1, shift = RIGHT*0.5))
+
+        # Save the second example
+        case2 = VGroup(
+            tail, bar1, bar2, decreasing_path, base, pair, pair2,
+            brace, label, extended_brace, extended_label, cdots
+        )
+
+        # Show both examples side by side
+        case1.clear_updaters()
+        base.clear_updaters()
+        case1[1:4].set_z_index(400)
+        case2.generate_target()
+        VGroup(case1, case2.target).scale(0.63).arrange(buff = 0.7)
+        case2.target.align_to(case1, DOWN)
+        case2[1:4].set_z_index(400)
+        case1_label = TexText("Case 1").next_to(case1, DOWN, buff = 1)
+        case2_label = TexText("Case 2").next_to(case2.target, DOWN, buff = 1)
+        self.play(
+            AnimationGroup(
+                AnimationGroup(
+                    FadeIn(case1, shift = RIGHT*5),
+                    MoveToTarget(case2)
+                ),
+                LaggedStartMap(FadeIn, VGroup(case1_label, case2_label), lag_ratio = 0.2, shift = UP*1.5, run_time = 0.8)
+            , lag_ratio = 0.1)
+        , run_time = 3)
+
+        # Bring back the original chart
+        original_chart_group.clear_updaters()
+        self.play(
+            FadeOut(VGroup(case1, case2, case1_label, case2_label), shift = DOWN*7),
+            FadeIn(original_chart_group, shift = DOWN*7)
+        , run_time = 1.5)
+        chart, nums, pairs = original_chart_group[0], original_chart_group[1], original_chart_group[2]
+        self.wait(0.5)
+
+        # Indicate pairs again to show uniqueness
+        self.play(AnimationGroup(*[Indicate(pair) for pair in pairs], lag_ratio = 0.1), run_time = 3)
+        self.wait(2)
+
+        # Put each pair of numbers on a coordinate grid
+        number_plane = NumberPlane(
+            x_range = [0, 5],
+            y_range = [0, 5]
+        ).set_width(4.5).to_edge(RIGHT, buff = 1)
+        number_plane.remove(number_plane.faded_lines)
+        x_labels = number_plane.add_coordinate_labels(x_values = [1, 2, 3, 4, 5], y_values = [], font_size = 30, direction = DOWN)
+        y_labels = number_plane.add_coordinate_labels(x_values = [], y_values = [1, 2, 3, 4, 5], font_size = 30, direction = LEFT)
+        x_labels.set_color(increasing_sequence_color)
+        y_labels.set_color(decreasing_sequence_color)
+        points = Group(*[
+            Group(GlowDot(), TrueDot()).set_color(n_color).move_to(number_plane.c2p(x, y))
+            for (x, y) in lis_lds_lengths
+        ])
+        point_labels = pairs.copy()
+        for point, label in zip(points, point_labels):
+            label.scale(0.6).next_to(point, UR, buff = -0.1)
+        self.play(
+            original_chart_group.animate(run_time = 2).scale(0.55).to_edge(LEFT, buff = 1),
+            FadeIn(number_plane, shift = LEFT*6, run_time = 2),
+            AnimationGroup(*[
+                AnimationGroup(
+                    TransformFromCopy(pair, label, path_arc = -PI*0.2),
+                    FadeIn(point)
+                , lag_ratio = 0.6, run_time = 2 + i*0.2)
+                for i, (point, pair, label) in enumerate(zip(points, pairs, point_labels))
+            ])
+        )
+        self.wait(1)
+
+        # Draw a rectangle bounding the points
+        unit_size = number_plane.background_lines[1].get_y() - number_plane.background_lines[0].get_y()
+        rect = Rectangle(
+            width = unit_size*3,
+            height = unit_size*4,
+            fill_opacity = 0.4,
+            fill_color = TEAL,
+            stroke_width = 4,
+            stroke_color = TEAL
+        ).align_to(number_plane.c2p(0, 0), DL)
+        self.bring_to_back(rect)
+        self.play(
+            DrawBorderThenFill(rect, stroke_width = 6)
+        , run_time = 2)
+        self.wait(2)
+
+        # Show the dimensions
+        width_brace = Brace(rect, DOWN, buff = 0.5)
+        width_label = width_brace.get_tex(R"\text{LIS}").set_color(increasing_sequence_color)
+        bars, base = chart
+        base.add_updater(lambda m: self.bring_to_front(m))
+
+        increasing_indices = [2, 3, 7]
+        decreasing_indices = [0, 1, 3, 8]
+        increasing_path = sequence_path(bars, increasing_indices, increasing_sequence_color)
+        self.play(
+            GrowFromEdge(width_brace, UP),
+            Write(width_label),
+            path_creation_animation(increasing_path)
+        )
+        self.wait(1)
+
+        height_brace = Brace(rect, LEFT, buff = 0.5)
+        height_label = height_brace.get_tex(R"\text{LDS}").set_color(decreasing_sequence_color)
+        decreasing_path = sequence_path(bars, decreasing_indices, decreasing_sequence_color)
+        self.play(
+            GrowFromEdge(height_brace, RIGHT),
+            Write(height_label),
+            path_creation_animation(decreasing_path)
+        )
+        self.wait(1)
+
+        # Circle the lattice points
+        lattice_points = VGroup()
+        for i in range(3):
+            for j in range(4):
+                point = Circle(
+                    radius = 0.15, stroke_width = 3, stroke_color = WHITE
+                ).move_to(number_plane.c2p(i + 1, j + 1))
+                lattice_points.add(point)
+        self.play(AnimationGroup(*[ShowCreation(point) for point in lattice_points], lag_ratio = 0.15))
+
+        # Write the inequality up top
+        inequality = Tex(
+            R"\text{LIS} \cdot \text{LDS} \ge N",
+            font_size = 64,
+            tex_to_color_map = {"LIS": increasing_sequence_color, "LDS": decreasing_sequence_color, "N": n_color}
+        ).to_edge(UP, buff = 0.6)
+        self.play(
+            AnimationGroup(
+                TransformMatchingShapes(width_label.copy(), inequality["LIS"], path_arc = -PI*0.35),
+                TransformMatchingShapes(height_label.copy(), inequality["LDS"], path_arc = -PI*0.2),
+                GrowFromCenter(inequality[R"\cdot"], path_arc = -PI*0.3),
+                Write(inequality[R"\ge N"])
+            , lag_ratio = 0.3, run_time = 2)
+        )
 
 
     def set_camera_target_position(
@@ -3016,6 +3485,9 @@ class OptimalErdosSzekeres(InteractiveScene):
                     width = 5, color = increasing_sequence_color
                 )
             )
+
+        for line in increasing_path:
+            self.play(ShowCreation(line), run_time = 0.7)
 
         for line in increasing_path[:-1]:
             self.play(ShowCreation(line), run_time = 2)
