@@ -2476,7 +2476,13 @@ class ErdosSzekeresV2(InteractiveScene):
         pair1 = Tex("(N, 1)", font_size=37).to_corner(UL, buff=0.8)
         pair1[1:-3].set_color(increasing_sequence_color)
         pair1[-2].set_color(decreasing_sequence_color)
-        self.play(Write(pair1))
+        table_label = Tex(
+            R"(\text{LIS},\ \text{LDS})",
+            tex_to_color_map={"LIS": increasing_sequence_color, "LDS": decreasing_sequence_color}
+        ).set_width(
+            pair1.get_width() * 1.2
+        ).next_to(pair1, UP)
+        self.play(Write(pair1), FadeIn(table_label))
         self.play(FadeOut(decreasing_paths), FadeOut(increasing_paths), FadeOut(nums))
         release_dots_recursive(VGroup(increasing_paths, decreasing_paths))
 
@@ -2710,7 +2716,7 @@ class ErdosSzekeresV2(InteractiveScene):
         self.wait(0.3)
 
         # Show the entire family of examples
-        pairs = VGroup(pair1, pair2, pair3)
+        pairs = VGroup(table_label, pair1, pair2, pair3)
         for k in range(4, 7):
             self.remove(VGroup(decreasing_paths, increasing_paths))
             release_dots_recursive(VGroup(decreasing_paths, increasing_paths))
@@ -2768,7 +2774,7 @@ class ErdosSzekeresV2(InteractiveScene):
             FadeOut(VGroup(chart, increasing_paths, decreasing_paths), shift=RIGHT * 3),
             VGroup(pairs, vdots).animate.scale(1.2).set_y(0).set_x(1), run_time=2)
         release_dots_recursive(VGroup(increasing_paths, decreasing_paths))
-        brace = Brace(pairs, RIGHT)
+        brace = Brace(pairs[1:], RIGHT)
         label = brace.get_tex(
             R"\text{LIS} \cdot \text{LDS} \ge N",
             tex_to_color_map={"LIS": increasing_sequence_color, "LDS": decreasing_sequence_color, "N": n_color},
