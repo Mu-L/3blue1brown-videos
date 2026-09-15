@@ -2476,7 +2476,13 @@ class ErdosSzekeresV2(InteractiveScene):
         pair1 = Tex("(N, 1)", font_size=37).to_corner(UL, buff=0.8)
         pair1[1:-3].set_color(increasing_sequence_color)
         pair1[-2].set_color(decreasing_sequence_color)
-        self.play(Write(pair1))
+        table_label = Tex(
+            R"(\text{LIS},\ \text{LDS})",
+            tex_to_color_map={"LIS": increasing_sequence_color, "LDS": decreasing_sequence_color}
+        ).set_width(
+            pair1.get_width() * 1.2
+        ).next_to(pair1, UP)
+        self.play(Write(pair1), FadeIn(table_label))
         self.play(FadeOut(decreasing_paths), FadeOut(increasing_paths), FadeOut(nums))
         release_dots_recursive(VGroup(increasing_paths, decreasing_paths))
 
@@ -2710,7 +2716,7 @@ class ErdosSzekeresV2(InteractiveScene):
         self.wait(0.3)
 
         # Show the entire family of examples
-        pairs = VGroup(pair1, pair2, pair3)
+        pairs = VGroup(table_label, pair1, pair2, pair3)
         for k in range(4, 7):
             self.remove(VGroup(decreasing_paths, increasing_paths))
             release_dots_recursive(VGroup(decreasing_paths, increasing_paths))
@@ -2768,7 +2774,7 @@ class ErdosSzekeresV2(InteractiveScene):
             FadeOut(VGroup(chart, increasing_paths, decreasing_paths), shift=RIGHT * 3),
             VGroup(pairs, vdots).animate.scale(1.2).set_y(0).set_x(1), run_time=2)
         release_dots_recursive(VGroup(increasing_paths, decreasing_paths))
-        brace = Brace(pairs, RIGHT)
+        brace = Brace(pairs[1:], RIGHT)
         label = brace.get_tex(
             R"\text{LIS} \cdot \text{LDS} \ge N",
             tex_to_color_map={"LIS": increasing_sequence_color, "LDS": decreasing_sequence_color, "N": n_color},
@@ -2889,19 +2895,17 @@ class ErdosSzekeresV2(InteractiveScene):
         self.play(FadeOut(new_chart), FadeIn(VGroup(grid.background, grid.tiles)), run_time=2)
         self.wait(1)
 
-        # Switch to the main example for the rest of the scene
+        # Ambiently flip through random permutations, landing on the main example for the rest of the scene
         self.clear()
         dot_stacks.clear()
         self.camera.frame.restore()
-
-        # Build a fresh, large n = 9 chart with the specific permutation
-        # [6, 5, 2, 4, 1, 9, 8, 7, 3], sized to fill most of the frame
         n = 9
-        heights = [6, 5, 2, 4, 1, 9, 8, 7, 3]
-        values = heights
         chart_width = 6
         chart_height = 5.8
         bar_width = chart_width / n
+        final_heights = [6, 5, 2, 4, 1, 9, 8, 7, 3]
+
+        values = list(np.random.permutation(list(range(1, n + 1))))
         bars = VGroup(*[
             Rectangle(
                 width=bar_width * 0.9,
@@ -2910,17 +2914,51 @@ class ErdosSzekeresV2(InteractiveScene):
                 fill_color=bar_color,
                 stroke_width=0,
             )
-            for h in heights
+            for h in values
         ]).arrange(RIGHT, buff=bar_width * 0.1, aligned_edge=DOWN)
         bars.move_to(ORIGIN).to_edge(DOWN, buff=1.0)
         base = Line(LEFT, RIGHT).set_width(bars.get_width() * 1.05).match_x(bars).next_to(bars, DOWN, buff=0)
         chart = VGroup(bars, base)
+
+        self.add(chart)
+        base.add_updater(lambda m: self.bring_to_front(m))
+        self.wait(0.5)
+
+        num_lead_in_iters = 45
+        for i in range(num_lead_in_iters):
+            is_last = (i == num_lead_in_iters - 1)
+            if is_last:
+                new_bar_heights = final_heights
+            else:
+                new_bar_heights = list(np.random.permutation(list(range(1, n + 1))))
+                while new_bar_heights == values:
+                    new_bar_heights = list(np.random.permutation(list(range(1, n + 1))))
+            permutation = [values.index(h) for h in new_bar_heights]
+            for i2, bar in enumerate(bars):
+                bars[permutation[i2]].generate_target()
+                bars[permutation[i2]].target.match_x(bar)
+            self.play(AnimationGroup(*[MoveToTarget(bar) for bar in bars]), run_time=0.6)
+            left_to_right = sorted(zip(values, bars), key=lambda pair: pair[1].get_x())
+            values, bars = [v for v, _ in left_to_right], VGroup(*[b for _, b in left_to_right])
+            base.add_updater(lambda m: self.bring_to_front(m))
+
+            lis_indices = longest_increasing_subsequence_indices(values)
+            lds_indices = longest_decreasing_subsequence_indices(values)
+            lis_path = sequence_path(bars, lis_indices, increasing_sequence_color)
+            lds_path = sequence_path(bars, lds_indices, decreasing_sequence_color)
+            self.play(
+                path_creation_animation(lis_path),
+                path_creation_animation(lds_path), run_time=0.9)
+            self.wait(0.5)
+            self.play(FadeOut(lis_path), FadeOut(lds_path), run_time=0.5)
+            release_dots_recursive(VGroup(lis_path, lds_path))
+
+        heights = values
         nums = VGroup(*[
             Integer(h, font_size=40).set_color(nums_color).next_to(bar, UP, buff=0.38)
             for h, bar in zip(heights, bars)
         ])
-
-        self.add(chart, nums)
+        self.play(FadeIn(nums))
         base.add_updater(lambda m: self.bring_to_front(m))
         self.wait(1)
 
@@ -2975,6 +3013,7 @@ class ErdosSzekeresV2(InteractiveScene):
         self.wait(2)
 
         # Switch focus back to the full chart
+        chart = VGroup(bars, base)
         base.clear_updaters()
         chart.generate_target()
         chart.target.set_opacity(1).stretch(1.5, 0).center()
@@ -3014,7 +3053,7 @@ class ErdosSzekeresV2(InteractiveScene):
             Tex(F"({lis}, {lds})").match_height(pair).match_y(pair).match_x(bar)
             for (lis, lds), bar in zip(lis_lds_lengths, bars)
         ])
-        pair_4 = pair
+        self.add(pairs[focus_index])
         for i, pair in enumerate(pairs):
             pair[1].set_color(increasing_sequence_color)
             pair[3].set_color(decreasing_sequence_color)
@@ -3028,8 +3067,6 @@ class ErdosSzekeresV2(InteractiveScene):
                 pair.animate.restore()
                 for pair in list(pairs[:focus_index]) + list(pairs[focus_index + 1:])
             ], lag_ratio=0.2), run_time=3.6)
-        self.remove(pair_4)
-        self.add(pairs)
         self.wait(2)
 
         # Do another example
@@ -4298,41 +4335,287 @@ class AIEvolutionV2(InteractiveScene):
         self.remove(deepmind_and_openai_marker)
 
 
-class LuongQuote(InteractiveScene):
+class HumanitysLastStand(InteractiveScene):
     def construct(self):
-        # Add the quote
-        quote = Text(
-            """
-            ‘‘We didn't really have a way to teach
-            the model to be patient. It didn't take
-            the time to understand the problem,
-            to get a feel for the problem,
-            to not try to solve the problem.”
-            """,
-            alignment="left"
-        ).set_color(YELLOW)
-        quote_bg = quote.copy().set_color("#111111")
+        # Add the timeline
+        timeline = Timeline(2010, 2040, 2030.7).set_y(-3)
+        self.add(timeline)
+
+        # Add impressive results in games and natural language
+        alphago_marker = timeline.get_marker(
+            R"AlphaGo beats Lee Sedol \\ every game except game 4 (of 5)",
+            2016 + 3 / 12 + 15 / 365,
+            ImageMobject("AI Evolution Timeline images/alphago.png").set_height(2),
+            shift=UP * 2.3 + RIGHT * 3,
+            image_position=RIGHT
+        )
+        alphago_marker.text["game 4"].set_color(GREEN)
+        dota_marker = timeline.get_marker(
+            "OpenAI 5 beats Dota 2 champs",
+            2019 + 4 / 12 + 15 / 365,
+            ImageMobject("AI Evolution Timeline images/dota.png").set_height(2),
+            shift=UP * 0.5 + RIGHT * 2,
+            image_position=RIGHT,
+            image_shift=UP * 0.3
+        )
+        gpt_marker = timeline.get_marker(
+            "GPT-3 released",
+            2020 + 5 / 12 + 29 / 365,
+            ImageMobject("AI Evolution Timeline images/gpt.png").set_height(2),
+            shift=DOWN * 1.3 + RIGHT * 2.6,
+            image_position=RIGHT,
+            image_shift=DOWN * 0.2
+        )
+        self.add(alphago_marker, dota_marker, gpt_marker)
+
+        # Add imo marker and shift the camera back
+        imo_marker = timeline.get_marker(
+            "IMO Gold?",
+            2030.7,
+            ImageMobject("IMO_logo").set_height(2),
+            shift=UP + RIGHT * 0.3
+        )
+        self.add(imo_marker)
+        self.camera.frame.scale(2, about_point=[0, timeline.get_y(), 0]).shift(RIGHT * 11)
+        self.camera.frame.save_state()
+        self.camera.frame.scale(0.7, about_point=[0, timeline.get_y(), 0]).shift(LEFT * 14)
+        self.play(
+            AnimationGroup(
+                AnimationGroup(
+                    imo_marker.year_tracker.animate.set_value(2026.6),
+                    timeline.year_tracker.animate.set_value(2016),
+                    self.camera.frame.animate.restore()
+                ),
+                FadeOut(Group(dota_marker, gpt_marker)), lag_ratio=0.6), run_time=6)
+
+        # Show the game
+        alphago_marker.image.generate_target()
+        alphago_marker.image.target.scale(2)
+        vs = TexText("VS", font_size=100)
+        sedol_image = ImageMobject("AI Evolution Timeline images/sedol.jpg").set_height(5)
+        Group(sedol_image, vs, alphago_marker.image.target).arrange(buff=0.5).next_to(alphago_marker.text, UP, buff=1.3)
+
+        self.play(
+            AnimationGroup(
+                FadeIn(sedol_image, shift=RIGHT),
+                Write(vs),
+                MoveToTarget(alphago_marker.image, path_arc=PI * 0.3),
+                lag_ratio=0.1
+            )
+        )
+
+
+class Game4(InteractiveScene):
+    def construct(self):
+        # Add the board
+        BOARD_N = 19
+        board_extent = 6.2
+        spacing = board_extent / (BOARD_N - 1)
+        board_center = np.array([0.0, 0.0, 0.0])
+
+        def grid_point(col, row):
+            return board_center + np.array([
+                -board_extent / 2 + col * spacing,
+                -board_extent / 2 + row * spacing,
+                0.0,
+            ])
+
+        board_bg = Square(side_length=board_extent + spacing * 1.4)
+        board_bg.set_fill(color=TEAL_D, opacity=1)
+        board_bg.set_stroke(width=0)
+        board_bg.move_to(board_center)
+
+        grid_lines = VGroup(*[
+            Line(grid_point(i, 0), grid_point(i, BOARD_N - 1),
+                 stroke_color=GREY_D, stroke_width=3)
+            for i in range(BOARD_N)
+        ], *[
+            Line(grid_point(0, i), grid_point(BOARD_N - 1, i),
+                 stroke_color=GREY_D, stroke_width=3)
+            for i in range(BOARD_N)
+        ])
+        hoshi = VGroup(*[
+            Dot(grid_point(c, r), radius=0.045, color=BLACK)
+            for c in (3, 9, 15) for r in (3, 9, 15)
+        ])
+        self.add(board_bg, grid_lines)
+
+        # Moves data
+        LETTERS = "ABCDEFGHJKLMNOPQRST"
+        COORDS = [
+            "Q16", "D4", "C16", "R4", "P4", "P3", "O3", "Q3", "C6", "F3", "N4", "Q5",
+            "J3", "E17", "H16", "C13", "E16", "C10", "D17", "B4", "O17", "R11", "E4",
+            "E5", "D9", "F4", "C9", "D10", "E10", "E11", "F11", "E12", "F12", "B10",
+            "F9", "F13", "G13", "F14", "G14", "N17", "N16", "M17", "O18", "J16",
+            "H17", "K13", "Q10", "Q11", "P10", "P11", "O11", "O12", "N12", "O13",
+            "N13", "N11", "O10", "N14", "M11", "O15", "O16", "N10", "M14", "N9",
+            "N15", "O14", "M12", "R10", "L9", "J9", "K11", "G12", "H10", "G15",
+            "H15", "F16", "F17",
+            "L11",
+            "K10", "M10", "L12", "K12", "N8", "O9", "P8", "P9", "Q9", "Q8", "R9",
+            "O8", "L10", "J11", "S9", "P7", "Q13", "R8", "C4", "C5", "P15",
+            "S8", "T9", "S10", "H13", "J10", "L7", "G11", "F10", "K8", "L8", "G8",
+            "F8", "G7", "C12", "E15", "E18", "B13", "D13", "E13", "E6", "F5", "D14",
+            "D12", "J7", "H9", "B6", "J14", "G16", "F15", "H14", "J12", "B12", "C11",
+            "H5", "G5", "P2", "S13", "D6", "C3", "Q2", "R2", "S14", "R13", "R14",
+            "K17", "G2", "T14", "T15", "T13", "S16", "B8", "B9", "A9", "C8", "H6",
+            "J6", "H4", "F2", "E2", "E1", "D1", "A12", "A11", "L16", "J15", "L17",
+            "L18", "G9", "J18", "R12", "S12", "R1", "S1", "P12", "T8", "P14", "T10",
+            "P5", "K4",
+        ]
+        NUMBERS = list(range(1, 177)) + [179, 180]
+        assert len(COORDS) == len(NUMBERS) == 178
+
+        board = {}
+
+        def neighbors(p):
+            c, r = p
+            for dc, dr in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                nc, nr = c + dc, r + dr
+                if 0 <= nc < BOARD_N and 0 <= nr < BOARD_N:
+                    yield (nc, nr)
+
+        def group_and_liberties(start):
+            color = board[start]
+            stack, seen, group, libs = [start], set(), set(), set()
+            while stack:
+                p = stack.pop()
+                if p in seen:
+                    continue
+                seen.add(p)
+                group.add(p)
+                for np_ in neighbors(p):
+                    c = board.get(np_)
+                    if c is None:
+                        libs.add(np_)
+                    elif c == color and np_ not in seen:
+                        stack.append(np_)
+            return group, libs
+
+        stone_radius = spacing * 0.47
+        stone_mobs = {}
+
+        # Play the sequence of moves
+        for n, coord_s in zip(NUMBERS, COORDS):
+            color = "B" if n % 2 == 1 else "W"
+            col = LETTERS.index(coord_s[0])
+            row = int(coord_s[1:]) - 1
+            pos = (col, row)
+
+            board[pos] = color
+            opp = "W" if color == "B" else "B"
+            captured = []
+            for np_ in neighbors(pos):
+                if board.get(np_) == opp:
+                    group, libs = group_and_liberties(np_)
+                    if not libs:
+                        captured.extend(group)
+            captured = sorted(set(captured))
+            for cp in captured:
+                del board[cp]
+
+            stone = Circle(radius=stone_radius)
+            stone.set_fill(BLACK if color == "B" else WHITE, opacity=1)
+            stone.set_stroke(width=0)
+            stone.move_to(grid_point(*pos))
+
+            fade_outs = [FadeOut(stone_mobs[cp]) for cp in captured if cp in stone_mobs]
+            self.play(FadeIn(stone), *fade_outs, run_time=0.12)
+
+            stone_mobs[pos] = stone
+            for cp in captured:
+                stone_mobs.pop(cp, None)
+
+        self.wait(2)
+
+
+class QuoteScene(InteractiveScene):
+    quote_color = YELLOW
+    settled_color = WHITE
+    bg_color = "#111111"
+    lag_ratio = 0.1
+    wait_time = 0.15
+    run_time_per_word = 0.25
+    min_run_time = 1.0
+    max_run_time = 3.0
+
+    def get_quote_and_sections(self, raw_text):
+        section_texts = raw_text.split("|")
+        full_text = "".join(section_texts)
+
+        quote = Text(full_text, alignment="left")
+        aspect_ratio = FRAME_WIDTH / FRAME_HEIGHT
+        if quote.get_width() / quote.get_height() > aspect_ratio:
+            quote.set_width(FRAME_WIDTH * 0.8)
+        else:
+            quote.set_height(FRAME_HEIGHT * 0.8)
+        quote.set_color(self.quote_color)
+
+        sections = [quote[text] for text in section_texts]
+        return quote, sections, section_texts
+
+    def get_section_run_time(self, section_text):
+        n_words = len(section_text.split())
+        run_time = n_words * self.run_time_per_word
+        return max(self.min_run_time, min(self.max_run_time, run_time))
+
+    def play_quote(self, raw_text, run_times=None, wait_time=None):
+        quote, sections, section_texts = self.get_quote_and_sections(raw_text)
+
+        quote_bg = quote.copy().set_color(self.bg_color)
         self.add(quote_bg)
-        self.play(FadeIn(quote["""‘‘We didn't really have a way to teach
-            the model to be patient."""], lag_ratio=0.1, run_time=3))
-        self.wait(0.2)
-        self.play(FadeIn(quote["""It didn't take
-            the time to understand the problem,"""], lag_ratio=0.1, run_time=2.5),
-                  quote["""‘‘We didn't really have a way to teach
-            the model to be patient."""].animate.set_color(WHITE)
-                  )
-        self.play(
-            FadeIn(quote["""to get a feel for the problem,"""], lag_ratio=0.1, run_time=1.5),
-            quote["""It didn't take
-            the time to understand the problem,"""].animate.set_color(WHITE)
-        )
-        self.wait(0.1)
-        self.play(
-            FadeIn(quote["""to not try to solve the problem.”"""], lag_ratio=0.1, run_time=1.5),
-            quote["""to get a feel for the problem,"""].animate.set_color(WHITE)
-        )
-        self.wait(0.1)
-        self.play(quote["""to not try to solve the problem.”"""].animate.set_color(WHITE))
+
+        if run_times is None:
+            run_times = [self.get_section_run_time(t) for t in section_texts]
+        if wait_time is None:
+            wait_time = self.wait_time
+
+        prev_section = None
+        for section, run_time in zip(sections, run_times):
+            anims = [FadeIn(section, lag_ratio=self.lag_ratio, run_time=run_time)]
+            if prev_section is not None:
+                anims.append(prev_section.animate.set_color(self.settled_color))
+            self.play(*anims)
+            self.wait(wait_time)
+            prev_section = section
+
+        self.play(prev_section.animate.set_color(self.settled_color))
+        return quote
+
+
+class LuongQuote(QuoteScene):
+    def construct(self):
+        # Show the quote
+        raw_text = """
+            ‘‘We didn’t really have a way to teach
+            the model to be patient.| It didn’t take
+            the time to understand the problem,|
+            to get a feel for the problem,|
+            to not try to solve the problem.”
+            """
+        self.play_quote(raw_text)
+
+
+class PatreonQuote(QuoteScene):
+    def construct(self):
+        # Show the quote
+        raw_text = """
+            “This question doesn’t contribute to
+            a deep understanding of mathematics,|
+            nor is it particularly difficult (when
+            compared with mathematical research).|
+            Rather, the value of this question lies
+            in the fact that it warmed my heart when
+            I solved it,| and it still warms my heart
+            more than a year later.| Like a good book or
+            a touching song, the value here is human.|
+
+            Call me humanist,| but I truly believe
+            that the value of this question,| as a
+            mathematical discovery,| exceeds that
+            of the average PhD thesis.”
+            """
+        self.play_quote(raw_text)
 
 
 class PiCreaturesWatchingPreview(TeacherStudentsScene):
@@ -4367,3 +4650,140 @@ class PiCreaturesWatchingPreview2(TeacherStudentsScene):
         )
 
         self.wait(7)
+
+
+class Headlines(InteractiveScene):
+    MARGIN = 0.4
+    H_GAP = 0.35
+    V_GAP = 0.35
+    N_COLS = 2
+    N_ROWS = 3
+
+    REVEAL_WIDTH_FRAC = 0.55
+    REVEAL_HEIGHT_FRAC = 0.55
+
+    GROW_TIME = 0.8
+    BACKSWING_FRACTION = 0.4
+    OVERSHOOT_SCALE = 1.12
+    SHIFT_TIME = 1.1
+
+    LAG_RATIO = 0.5
+
+    PULSE_AMPLITUDE = 0.01
+    PULSE_FREQ_RANGE = (0.25, 0.35)
+    BREATHE_TIME = 12
+
+    def scale_to_fit_box(self, mobject, max_width, max_height):
+        width_scale = max_width / mobject.get_width()
+        height_scale = max_height / mobject.get_height()
+        mobject.scale(min(width_scale, height_scale))
+        return mobject
+
+    def get_headline_update_func(self, tiny_start, overshoot_target, grid_target,
+                                 start_delay, rise_time, settle_time,
+                                 breathe_amplitude, breathe_freq):
+        rise_end = start_delay + rise_time
+        settle_end = rise_end + settle_time
+
+        def update_func(mob, alpha, total_run_time):
+            t = alpha * total_run_time
+
+            if t <= start_delay:
+                mob.become(tiny_start)
+            elif t < rise_end:
+                p = (t - start_delay) / rise_time
+                mob.interpolate(tiny_start, overshoot_target, rush_from(p))
+            elif t < settle_end:
+                p = (t - rise_end) / settle_time
+                mob.interpolate(overshoot_target, grid_target, smooth(p))
+            else:
+                breathe_t = t - settle_end
+                factor = 1 / (1 + breathe_amplitude * np.sin(TAU * breathe_freq * breathe_t))
+                mob.become(grid_target)
+                mob.scale(factor, about_point=grid_target.get_center())
+
+        return update_func
+
+    def construct(self):
+        # Add a grid of images
+        images_dir = "AI Evolution Timeline images"
+        image_names = [
+            "fel.png",
+            "unit_distance.png",
+            "erdos_problems.png",
+            "jacobian.png",
+            "non-sofic_group.png",
+            "navier-stokes.png",
+        ]
+
+        raw_images = [
+            ImageMobject(os.path.join(images_dir, name))
+            for name in image_names
+        ]
+
+        grid_width = FRAME_WIDTH - 2 * self.MARGIN
+        grid_height = FRAME_HEIGHT - 2 * self.MARGIN
+        cell_width = (grid_width - (self.N_COLS - 1) * self.H_GAP) / self.N_COLS
+        cell_height = (grid_height - (self.N_ROWS - 1) * self.V_GAP) / self.N_ROWS
+
+        cell_centers = []
+        for row in range(self.N_ROWS):
+            for col in range(self.N_COLS):
+                x = -grid_width / 2 + cell_width / 2 + col * (cell_width + self.H_GAP)
+                y = grid_height / 2 - cell_height / 2 - row * (cell_height + self.V_GAP)
+                cell_centers.append(np.array([x, y, 0.0]))
+
+        reveal_w = FRAME_WIDTH * self.REVEAL_WIDTH_FRAC
+        reveal_h = FRAME_HEIGHT * self.REVEAL_HEIGHT_FRAC
+
+        overshoot_targets = []
+        grid_targets = []
+        for img, center in zip(raw_images, cell_centers):
+            reveal = img.copy()
+            self.scale_to_fit_box(reveal, reveal_w, reveal_h)
+            reveal.move_to(ORIGIN)
+
+            overshoot_targets.append(reveal.copy().scale(self.OVERSHOOT_SCALE))
+
+            grid = img.copy()
+            self.scale_to_fit_box(grid, cell_width, cell_height)
+            grid.move_to(center)
+            grid_targets.append(grid)
+
+        rise_time = self.GROW_TIME * (1 - self.BACKSWING_FRACTION)
+        settle_time = self.GROW_TIME * self.BACKSWING_FRACTION + self.SHIFT_TIME
+        seq_time = self.GROW_TIME + self.SHIFT_TIME
+
+        n = len(raw_images)
+        max_delay = (n - 1) * self.LAG_RATIO * seq_time
+        total_run_time = max_delay + seq_time + self.BREATHE_TIME
+
+        # Pop up the headlines
+        animations = []
+        for i in range(n):
+            tiny_start = overshoot_targets[i].copy().scale(0.001 / self.OVERSHOOT_SCALE).set_opacity(0)
+            start_delay = i * self.LAG_RATIO * seq_time
+
+            mob = tiny_start.copy()
+            self.add(mob)
+
+            update_func = self.get_headline_update_func(
+                tiny_start,
+                overshoot_targets[i],
+                grid_targets[i],
+                start_delay,
+                rise_time,
+                settle_time,
+                self.PULSE_AMPLITUDE,
+                random.uniform(*self.PULSE_FREQ_RANGE),
+            )
+            animations.append(
+                UpdateFromAlphaFunc(
+                    mob,
+                    lambda m, a, f=update_func: f(m, a, total_run_time),
+                    run_time=total_run_time,
+                    rate_func=linear,
+                )
+            )
+
+        self.play(*animations)
