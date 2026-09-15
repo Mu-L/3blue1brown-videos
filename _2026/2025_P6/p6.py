@@ -4412,8 +4412,8 @@ class PatreonQuote(QuoteScene):
             (when compared to mathematical research).|
             Rather, the value of this question lies
             in the fact that it warmed my heart when
-            I solved it,| and it still warms it more
-            than a year later.| Like a good book or
+            I solved it,| and it still warms my heart
+            more than a year later.| Like a good book or
             a touching song, the value here is human.|
             Call me a humanist,| but I truly believe
             that the value of this question,| as a
