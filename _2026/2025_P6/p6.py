@@ -2895,19 +2895,17 @@ class ErdosSzekeresV2(InteractiveScene):
         self.play(FadeOut(new_chart), FadeIn(VGroup(grid.background, grid.tiles)), run_time=2)
         self.wait(1)
 
-        # Switch to the main example for the rest of the scene
+        # Ambiently flip through random permutations, landing on the main example for the rest of the scene
         self.clear()
         dot_stacks.clear()
         self.camera.frame.restore()
-
-        # Build a fresh, large n = 9 chart with the specific permutation
-        # [6, 5, 2, 4, 1, 9, 8, 7, 3], sized to fill most of the frame
         n = 9
-        heights = [6, 5, 2, 4, 1, 9, 8, 7, 3]
-        values = heights
         chart_width = 6
         chart_height = 5.8
         bar_width = chart_width / n
+        final_heights = [6, 5, 2, 4, 1, 9, 8, 7, 3]
+
+        values = list(np.random.permutation(list(range(1, n + 1))))
         bars = VGroup(*[
             Rectangle(
                 width=bar_width * 0.9,
@@ -2916,17 +2914,51 @@ class ErdosSzekeresV2(InteractiveScene):
                 fill_color=bar_color,
                 stroke_width=0,
             )
-            for h in heights
+            for h in values
         ]).arrange(RIGHT, buff=bar_width * 0.1, aligned_edge=DOWN)
         bars.move_to(ORIGIN).to_edge(DOWN, buff=1.0)
         base = Line(LEFT, RIGHT).set_width(bars.get_width() * 1.05).match_x(bars).next_to(bars, DOWN, buff=0)
         chart = VGroup(bars, base)
+
+        self.add(chart)
+        base.add_updater(lambda m: self.bring_to_front(m))
+        self.wait(0.5)
+
+        num_lead_in_iters = 45
+        for i in range(num_lead_in_iters):
+            is_last = (i == num_lead_in_iters - 1)
+            if is_last:
+                new_bar_heights = final_heights
+            else:
+                new_bar_heights = list(np.random.permutation(list(range(1, n + 1))))
+                while new_bar_heights == values:
+                    new_bar_heights = list(np.random.permutation(list(range(1, n + 1))))
+            permutation = [values.index(h) for h in new_bar_heights]
+            for i2, bar in enumerate(bars):
+                bars[permutation[i2]].generate_target()
+                bars[permutation[i2]].target.match_x(bar)
+            self.play(AnimationGroup(*[MoveToTarget(bar) for bar in bars]), run_time=0.6)
+            left_to_right = sorted(zip(values, bars), key=lambda pair: pair[1].get_x())
+            values, bars = [v for v, _ in left_to_right], VGroup(*[b for _, b in left_to_right])
+            base.add_updater(lambda m: self.bring_to_front(m))
+
+            lis_indices = longest_increasing_subsequence_indices(values)
+            lds_indices = longest_decreasing_subsequence_indices(values)
+            lis_path = sequence_path(bars, lis_indices, increasing_sequence_color)
+            lds_path = sequence_path(bars, lds_indices, decreasing_sequence_color)
+            self.play(
+                path_creation_animation(lis_path),
+                path_creation_animation(lds_path), run_time=0.9)
+            self.wait(0.5)
+            self.play(FadeOut(lis_path), FadeOut(lds_path), run_time=0.5)
+            release_dots_recursive(VGroup(lis_path, lds_path))
+
+        heights = values
         nums = VGroup(*[
             Integer(h, font_size=40).set_color(nums_color).next_to(bar, UP, buff=0.38)
             for h, bar in zip(heights, bars)
         ])
-
-        self.add(chart, nums)
+        self.play(FadeIn(nums))
         base.add_updater(lambda m: self.bring_to_front(m))
         self.wait(1)
 
@@ -2981,6 +3013,7 @@ class ErdosSzekeresV2(InteractiveScene):
         self.wait(2)
 
         # Switch focus back to the full chart
+        chart = VGroup(bars, base)
         base.clear_updaters()
         chart.generate_target()
         chart.target.set_opacity(1).stretch(1.5, 0).center()
@@ -3020,7 +3053,7 @@ class ErdosSzekeresV2(InteractiveScene):
             Tex(F"({lis}, {lds})").match_height(pair).match_y(pair).match_x(bar)
             for (lis, lds), bar in zip(lis_lds_lengths, bars)
         ])
-        pair_4 = pair
+        self.add(pairs[focus_index])
         for i, pair in enumerate(pairs):
             pair[1].set_color(increasing_sequence_color)
             pair[3].set_color(decreasing_sequence_color)
@@ -3034,8 +3067,6 @@ class ErdosSzekeresV2(InteractiveScene):
                 pair.animate.restore()
                 for pair in list(pairs[:focus_index]) + list(pairs[focus_index + 1:])
             ], lag_ratio=0.2), run_time=3.6)
-        self.remove(pair_4)
-        self.add(pairs)
         self.wait(2)
 
         # Do another example
